@@ -76,7 +76,7 @@
     // ============ DATA CONVERTERS ============
     const toDriver = (row) => ({ id: row.id, name: row.name, company: row.company || 'A2C', type: row.type, payType: row.pay_type, payRate: parseFloat(row.pay_rate), minMiles: row.min_miles, overageRate: row.overage_rate ? parseFloat(row.overage_rate) : null, truckId: row.truck_id, dispatcherId: row.dispatcher_id, email: row.email, phone: row.phone, homeLocation: row.home_location, ooInsurance: parseFloat(row.oo_insurance) || 0, ooEld: parseFloat(row.oo_eld) || 0, ooTrailerRental: parseFloat(row.oo_trailer_rental) || 0 });
     const toTruck = (row) => ({ id: row.id, number: row.number, type: row.type, year: row.year, make: row.make, vin: row.vin, monthlyPayment: parseFloat(row.monthly_payment) || 0, autoIns: parseFloat(row.auto_ins) || 0, cargoIns: parseFloat(row.cargo_ins) || 0, pdIns: parseFloat(row.pd_ins) || 0, eld: parseFloat(row.eld) || 0, dispatcherId: row.dispatcher_id });
-    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
+    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, pickups: row.pickups ? JSON.parse(row.pickups) : null, deliveries: row.deliveries ? JSON.parse(row.deliveries) : null, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
     const toAdvance = (row) => ({ id: row.id, driverId: row.driver_id, amount: parseFloat(row.amount), date: row.date, type: row.type, note: row.note, weekPeriod: row.week_period });
     const toBalance = (row) => ({ driverId: row.driver_id, previousOwed: parseFloat(row.previous_owed) || 0 });
     const toExpense = (row) => ({ id: row.id, category: row.category, truckId: row.truck_id, driverId: row.driver_id, trailerId: row.trailer_id, amount: parseFloat(row.amount), date: row.date, note: row.note });
@@ -345,15 +345,22 @@
       // LOAD CRUD
       const saveLoad = async () => {
         const d = editData;
-        if (!d.customer || !d.from || !d.to || !d.rate || !d.driverId || !d.truckId) { alert('Fill required fields'); return; }
+        const pickups = (d.pickups || [d.from]).filter(p => p);
+        const deliveries = (d.deliveries || [d.to]).filter(del => del);
+        const from = pickups[0];
+        const to = deliveries[deliveries.length - 1];
+        
+        if (!d.customer || pickups.length === 0 || deliveries.length === 0 || !d.rate || !d.driverId || !d.truckId) { alert('Fill required fields'); return; }
         if (d.pickupDate && d.deliveryDate && d.deliveryDate < d.pickupDate) { alert('Delivery date cannot be before pickup date'); return; }
         showStatus('saving', '↻ Saving...');
         const loadData = {
           company: d.company || 'A2C',
           customer: d.customer,
           load_number: d.loadNumber || null,
-          origin: d.from,
-          destination: d.to,
+          origin: from,
+          destination: to,
+          pickups: JSON.stringify(pickups),
+          deliveries: JSON.stringify(deliveries),
           rate: parseFloat(d.rate),
           miles: parseFloat(d.miles) || 0,
           deadhead: parseFloat(d.deadhead) || 0,
@@ -960,23 +967,29 @@
                   <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Dispatch Board</h1>
                   <button onClick={() => openModal('load', { from: '', to: '', customer: '', rate: '', miles: '', driverId: '', truckId: '', dispatcherId: '' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Load</button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
                   {statuses.map(st => (
                     <div key={st} style={{ background: '#e2e8f0', borderRadius: '8px', padding: '8px', minHeight: '300px' }}>
                       <div style={{ fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', marginBottom: '8px' }}>{st.replace('_', ' ')} ({loads.filter(l => l.status === st).length})</div>
-                      {loads.filter(l => l.status === st).map(load => (
+                      {loads.filter(l => l.status === st).map(load => {
+                        const pickups = load.pickups || [load.from];
+                        const deliveries = load.deliveries || [load.to];
+                        const routeDisplay = pickups.length > 1 || deliveries.length > 1 
+                          ? `${pickups.join(' → ')} → ${deliveries.join(' → ')}`
+                          : `${load.from} → ${load.to}`;
+                        return (
                         <div key={load.id} style={{ background: 'white', borderRadius: '6px', padding: '8px', marginBottom: '6px', fontSize: '11px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>#{load.id}</span><span style={{ color: '#10b981' }}>${load.rate}</span></div>
-                          <div style={{ color: '#64748b', margin: '4px 0' }}>{load.from} → {load.to}</div>
+                          <div style={{ color: '#64748b', margin: '4px 0' }}>{routeDisplay}</div>
                           <div style={{ color: '#64748b' }}>👤 {getDriver(load.driverId)?.name || '—'}</div>
                           {load.status === 'delivered' && !load.podReceived && <button onClick={() => markPodReceived(load.id)} style={{ fontSize: '9px', padding: '4px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', width: '100%', marginTop: '4px' }}>Mark POD ✓</button>}
                           {load.status === 'delivered' && load.podReceived && <div style={{ color: '#10b981', marginTop: '4px' }}>✓ POD</div>}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
                             {st !== 'booked' && <button onClick={() => moveLoad(load.id, 'back')} style={{ padding: '2px 6px', fontSize: '10px', background: '#e2e8f0', border: 'none', borderRadius: '3px' }}>←</button>}
-                            {st !== 'closed' && <button onClick={() => moveLoad(load.id, 'next')} style={{ padding: '2px 6px', fontSize: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '3px', marginLeft: 'auto' }}>→</button>}
+                            {st !== 'pod_received' && <button onClick={() => moveLoad(load.id, 'next')} style={{ padding: '2px 6px', fontSize: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '3px', marginLeft: 'auto' }}>→</button>}
                           </div>
                         </div>
-                      ))}
+                      );})}
                     </div>
                   ))}
                 </div>
@@ -1110,7 +1123,14 @@
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
                   <table><thead><tr>{['#', 'Load #', 'Customer', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{loads.map(l => (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{l.from} → {l.to}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: '#10b981', fontWeight: 'bold' }}>{l.miles > 0 ? '$' + (l.rate / l.miles).toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
+                    <tbody>{loads.map(l => {
+                      const pickups = l.pickups || [l.from];
+                      const deliveries = l.deliveries || [l.to];
+                      const routeDisplay = pickups.length > 1 || deliveries.length > 1 
+                        ? `${pickups.join(' → ')} → ${deliveries.join(' → ')}`
+                        : `${l.from} → ${l.to}`;
+                      return (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{routeDisplay}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: '#10b981', fontWeight: 'bold' }}>{l.miles > 0 ? '$' + (l.rate / l.miles).toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, pickups: l.pickups || [l.from], deliveries: l.deliveries || [l.to], rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>);
+                    })}</tbody>
                   </table>
                 </div>
               </div>
@@ -1467,9 +1487,49 @@
                 <div className="form-group"><label>Customer *</label><input value={editData.customer || ''} onChange={e => setEditData({...editData, customer: e.target.value})} /></div>
                 <div className="form-group"><label>Load # (Broker's)</label><input value={editData.loadNumber || ''} onChange={e => setEditData({...editData, loadNumber: e.target.value})} placeholder="Broker ref #" /></div>
               </div>
-              <div className="form-row">
-                <div className="form-group"><label>From *</label><input value={editData.from || ''} onChange={e => setEditData({...editData, from: e.target.value})} placeholder="City, ST" /></div>
-                <div className="form-group"><label>To *</label><input value={editData.to || ''} onChange={e => setEditData({...editData, to: e.target.value})} placeholder="City, ST" /></div>
+              
+              {/* PICKUPS */}
+              <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#166534' }}>📦 Pickups</span>
+                  <button type="button" onClick={() => setEditData({...editData, pickups: [...(editData.pickups || [editData.from || '']), '']})} style={{ padding: '2px 8px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px' }}>+ Add PU</button>
+                </div>
+                {(editData.pickups || [editData.from || '']).map((pu, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                    <span style={{ width: '24px', fontSize: '11px', color: '#666', paddingTop: '8px' }}>#{idx + 1}</span>
+                    <input value={pu} onChange={e => {
+                      const newPickups = [...(editData.pickups || [editData.from || ''])];
+                      newPickups[idx] = e.target.value;
+                      setEditData({...editData, pickups: newPickups, from: newPickups[0]});
+                    }} placeholder="City, ST" style={{ flex: 1 }} />
+                    {idx > 0 && <button type="button" onClick={() => {
+                      const newPickups = (editData.pickups || []).filter((_, i) => i !== idx);
+                      setEditData({...editData, pickups: newPickups, from: newPickups[0]});
+                    }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontSize: '11px' }}>✕</button>}
+                  </div>
+                ))}
+              </div>
+              
+              {/* DELIVERIES */}
+              <div style={{ background: '#eff6ff', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e40af' }}>🚚 Deliveries</span>
+                  <button type="button" onClick={() => setEditData({...editData, deliveries: [...(editData.deliveries || [editData.to || '']), '']})} style={{ padding: '2px 8px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px' }}>+ Add DEL</button>
+                </div>
+                {(editData.deliveries || [editData.to || '']).map((del, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                    <span style={{ width: '24px', fontSize: '11px', color: '#666', paddingTop: '8px' }}>#{idx + 1}</span>
+                    <input value={del} onChange={e => {
+                      const newDeliveries = [...(editData.deliveries || [editData.to || ''])];
+                      newDeliveries[idx] = e.target.value;
+                      setEditData({...editData, deliveries: newDeliveries, to: newDeliveries[newDeliveries.length - 1]});
+                    }} placeholder="City, ST" style={{ flex: 1 }} />
+                    {idx > 0 && <button type="button" onClick={() => {
+                      const newDeliveries = (editData.deliveries || []).filter((_, i) => i !== idx);
+                      setEditData({...editData, deliveries: newDeliveries, to: newDeliveries[newDeliveries.length - 1]});
+                    }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontSize: '11px' }}>✕</button>}
+                  </div>
+                ))}
               </div>
               <div className="form-row">
                 <div className="form-group"><label>Rate ($) *</label><input type="number" value={editData.rate || ''} onChange={e => setEditData({...editData, rate: e.target.value})} /></div>
@@ -1478,11 +1538,25 @@
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <input type="number" value={editData.miles || ''} onChange={e => setEditData({...editData, miles: e.target.value})} style={{ flex: 1 }} />
                     <button type="button" onClick={async () => {
-                      if (!editData.from || !editData.to) { alert('Enter From and To first'); return; }
-                      setEditData({...editData, miles: '...'});
-                      const miles = await calculateMiles(editData.from, editData.to);
-                      setEditData(prev => ({...prev, miles: miles || ''}));
-                      if (!miles) alert('Could not calculate miles. Check addresses.');
+                      const pickups = (editData.pickups || [editData.from]).filter(p => p);
+                      const deliveries = (editData.deliveries || [editData.to]).filter(d => d);
+                      if (pickups.length === 0 || deliveries.length === 0) { alert('Enter at least one pickup and delivery'); return; }
+                      
+                      // Build route: all pickups then all deliveries
+                      const route = [...pickups, ...deliveries];
+                      if (route.length < 2) { alert('Need at least 2 stops'); return; }
+                      
+                      setEditData(prev => ({...prev, miles: '...'}));
+                      let totalMiles = 0;
+                      
+                      // Calculate miles between each consecutive stop
+                      for (let i = 0; i < route.length - 1; i++) {
+                        const miles = await calculateMiles(route[i], route[i + 1]);
+                        if (miles) totalMiles += miles;
+                      }
+                      
+                      setEditData(prev => ({...prev, miles: totalMiles || ''}));
+                      if (!totalMiles) alert('Could not calculate miles. Check addresses.');
                     }} style={{ padding: '6px 10px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>📍 Calc</button>
                   </div>
                   {editData.miles && editData.rate && editData.miles !== '...' && (
