@@ -1496,12 +1496,11 @@
                     <button type="button" onClick={async () => {
                       if (!editData.truckId || !editData.from) { alert('Select truck and enter From first'); return; }
                       const selectedTruckId = parseInt(editData.truckId);
-                      const completedStatuses = ['delivered', 'pod_received'];
-                      const truckLoads = loads.filter(l => Number(l.truckId) === selectedTruckId && completedStatuses.includes(l.status)).sort((a,b) => new Date(b.deliveryDate || 0) - new Date(a.deliveryDate || 0));
-                      const lastDelivery = truckLoads[0]?.to;
-                      if (!lastDelivery) { alert('No previous delivery found for this truck'); return; }
-                      setEditData(prev => ({...prev, deadhead: '...', lastDelivery}));
-                      const dh = await calculateMiles(lastDelivery, editData.from);
+                      const truckLoads = loads.filter(l => Number(l.truckId) === selectedTruckId && l.id !== editData.id).sort((a,b) => b.id - a.id);
+                      const lastLoad = truckLoads[0];
+                      if (!lastLoad?.to) { alert('No previous load found for this truck'); return; }
+                      setEditData(prev => ({...prev, deadhead: '...', lastDelivery: lastLoad.to}));
+                      const dh = await calculateMiles(lastLoad.to, editData.from);
                       setEditData(prev => ({...prev, deadhead: dh || ''}));
                       if (!dh) alert('Could not calculate deadhead.');
                     }} style={{ padding: '6px 10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>📍 DH</button>
