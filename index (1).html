@@ -76,7 +76,7 @@
     // ============ DATA CONVERTERS ============
     const toDriver = (row) => ({ id: row.id, name: row.name, company: row.company || 'A2C', type: row.type, payType: row.pay_type, payRate: parseFloat(row.pay_rate), minMiles: row.min_miles, overageRate: row.overage_rate ? parseFloat(row.overage_rate) : null, truckId: row.truck_id, dispatcherId: row.dispatcher_id, email: row.email, phone: row.phone, homeLocation: row.home_location, ooInsurance: parseFloat(row.oo_insurance) || 0, ooEld: parseFloat(row.oo_eld) || 0, ooTrailerRental: parseFloat(row.oo_trailer_rental) || 0 });
     const toTruck = (row) => ({ id: row.id, number: row.number, type: row.type, year: row.year, make: row.make, vin: row.vin, monthlyPayment: parseFloat(row.monthly_payment) || 0, autoIns: parseFloat(row.auto_ins) || 0, cargoIns: parseFloat(row.cargo_ins) || 0, pdIns: parseFloat(row.pd_ins) || 0, eld: parseFloat(row.eld) || 0, dispatcherId: row.dispatcher_id });
-    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
+    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, pickups: row.pickups ? JSON.parse(row.pickups) : null, deliveries: row.deliveries ? JSON.parse(row.deliveries) : null, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
     const toAdvance = (row) => ({ id: row.id, driverId: row.driver_id, amount: parseFloat(row.amount), date: row.date, type: row.type, note: row.note, weekPeriod: row.week_period });
     const toBalance = (row) => ({ driverId: row.driver_id, previousOwed: parseFloat(row.previous_owed) || 0 });
     const toExpense = (row) => ({ id: row.id, category: row.category, truckId: row.truck_id, driverId: row.driver_id, trailerId: row.trailer_id, amount: parseFloat(row.amount), date: row.date, note: row.note });
@@ -119,6 +119,7 @@
       const [expenses, setExpenses] = useState([]);
       const [settlements, setSettlements] = useState([]);
       const [loadBoard, setLoadBoard] = useState([]);
+      const [dispatcherFilter, setDispatcherFilter] = useState('all');
       
       // Week selector
       const weekOptions = getWeekOptions();
@@ -261,6 +262,9 @@
         const truck = getTruck(truckId);
         if (!truck) return;
         
+        const driver = drivers.find(d => d.truckId === truckId);
+        const trailer = trailers.find(t => t.assignedTruckId === truckId);
+        
         let lbStatus = loadStatusToLBStatus[loadStatus] || 'mty';
         
         // Check if delivery date is today - truck will be empty today (use local date)
@@ -272,32 +276,43 @@
         
         const { data: existing } = await supabase.from('load_board').select('id').eq('truck', truck.number).limit(1);
         
-        if (existing && existing.length > 0) {
-          const updateData = { 
-            status: lbStatus,
-            updated_at: new Date().toISOString()
-          };
-          // Add next stop and details for active loads
-          if (loadDetails) {
-            if (loadStatus === 'booked' || loadStatus === 'dispatched') {
-              updateData.next_stop = loadDetails.from;
-              updateData.details = `PU: ${loadDetails.from} → ${loadDetails.to}`;
-              if (loadDetails.pickupDate) updateData.eta_date = loadDetails.pickupDate;
-            } else if (loadStatus === 'in_transit') {
-              updateData.next_stop = loadDetails.to;
-              updateData.details = `DEL: ${loadDetails.to} ($${loadDetails.rate})`;
-              if (loadDetails.deliveryDate) updateData.eta_date = loadDetails.deliveryDate;
-            } else if (loadStatus === 'delivered') {
-              updateData.next_stop = loadDetails.to;
-              updateData.details = `MTY @ ${loadDetails.to}`;
-              updateData.eta_date = null;
-            } else {
-              updateData.next_stop = '';
-              updateData.details = '';
-              updateData.eta_date = null;
-            }
+        const updateData = { 
+          status: lbStatus,
+          updated_at: new Date().toISOString()
+        };
+        
+        // Add pickup and delivery cities for active loads
+        if (loadDetails) {
+          // Show broker ref # or internal load ID
+          updateData.load_number = loadDetails.loadNumber || (loadDetails.loadId ? `#${loadDetails.loadId}` : '');
+          updateData.pickup_city = loadDetails.from || '';
+          updateData.delivery_city = loadDetails.to || '';
+          updateData.eta_date = loadDetails.deliveryDate || null;
+          updateData.eta_time = loadDetails.deliveryTime || null;
+          
+          if (loadStatus === 'delivered' || loadStatus === 'pod_received') {
+            updateData.load_number = '';
+            updateData.pickup_city = '';
+            updateData.delivery_city = loadDetails.to || '';
+            updateData.eta_date = null;
+            updateData.eta_time = null;
           }
+        }
+        
+        if (existing && existing.length > 0) {
           await supabase.from('load_board').update(updateData).eq('id', existing[0].id);
+        } else {
+          // Create new load board entry if doesn't exist
+          await supabase.from('load_board').insert({
+            ...updateData,
+            truck: truck.number,
+            driver: driver?.name || '',
+            trailer: trailer?.number || '',
+            trailer_type: trailer?.make || '',
+            email: driver?.email || '',
+            phone: driver?.phone || '',
+            dispatcher_id: driver?.dispatcherId || null
+          });
         }
       };
 
@@ -311,14 +326,14 @@
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: closedDate }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadId: load.id, loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         } else {
           const newStatus = statuses[Math.max(idx - 1, 0)];
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: null }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadId: load.id, loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         }
       };
@@ -328,15 +343,22 @@
       // LOAD CRUD
       const saveLoad = async () => {
         const d = editData;
-        if (!d.customer || !d.from || !d.to || !d.rate || !d.driverId || !d.truckId) { alert('Fill required fields'); return; }
+        const pickups = (d.pickups || [d.from]).filter(p => p);
+        const deliveries = (d.deliveries || [d.to]).filter(del => del);
+        const from = pickups[0];
+        const to = deliveries[deliveries.length - 1];
+        
+        if (!d.customer || pickups.length === 0 || deliveries.length === 0 || !d.rate || !d.driverId || !d.truckId) { alert('Fill required fields'); return; }
         if (d.pickupDate && d.deliveryDate && d.deliveryDate < d.pickupDate) { alert('Delivery date cannot be before pickup date'); return; }
         showStatus('saving', '↻ Saving...');
         const loadData = {
           company: d.company || 'A2C',
           customer: d.customer,
           load_number: d.loadNumber || null,
-          origin: d.from,
-          destination: d.to,
+          origin: from,
+          destination: to,
+          pickups: JSON.stringify(pickups),
+          deliveries: JSON.stringify(deliveries),
           rate: parseFloat(d.rate),
           miles: parseFloat(d.miles) || 0,
           deadhead: parseFloat(d.deadhead) || 0,
@@ -360,10 +382,11 @@
         if (d.id) {
           await supabase.from('loads').update(loadData).eq('id', d.id);
           const existingLoad = loads.find(l => l.id === d.id);
-          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { loadId: d.id, loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         } else {
-          await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false });
-          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
+          const { data: newLoad } = await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false }).select();
+          const newLoadId = newLoad?.[0]?.id;
+          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { loadId: newLoadId, loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
       };
@@ -739,6 +762,7 @@
         showStatus('saving', '↻ Saving...');
         const data = {
           dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : null,
+          load_number: d.loadNumber || '',
           driver: d.driver || '',
           company: d.company || '',
           mc: d.mc || '',
@@ -746,8 +770,8 @@
           trailer: d.trailer || '',
           phone: d.phone || '',
           trailer_type: d.trailerType || '',
-          next_stop: d.nextStop || '',
-          details: d.details || '',
+          pickup_city: d.pickupCity || '',
+          delivery_city: d.deliveryCity || '',
           eta_date: d.etaDate || null,
           eta_time: d.etaTime || '',
           status: d.status || 'mty',
@@ -781,36 +805,81 @@
 
       // Sync existing fleet (drivers with trucks) to Load Board
       const syncFleetToLoadBoard = async () => {
-        if (!confirm('This will add Load Board entries for all drivers with trucks assigned. Continue?')) return;
+        if (!confirm('This will sync all Load Board entries with current fleet and active loads. Continue?')) return;
         showStatus('saving', '↻ Syncing fleet...');
         let added = 0;
+        let updated = 0;
         
+        // First, ensure all drivers with trucks have Load Board entries
         for (const driver of drivers) {
           if (!driver.truckId) continue;
           const truck = getTruck(driver.truckId);
           if (!truck) continue;
           
-          // Check if entry exists for this truck
           const { data: existing } = await supabase.from('load_board').select('id').eq('truck', truck.number).limit(1);
-          if (existing && existing.length > 0) continue; // Skip if already exists
+          if (!existing || existing.length === 0) {
+            const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
+            await supabase.from('load_board').insert({
+              dispatcher_id: driver.dispatcherId || null,
+              driver: driver.name,
+              truck: truck.number,
+              trailer: trailer?.number || '',
+              trailer_type: trailer?.make || '',
+              email: driver.email || '',
+              phone: driver.phone || '',
+              status: 'mty',
+              updated_at: new Date().toISOString()
+            });
+            added++;
+          }
+        }
+        
+        // Now update all Load Board entries with active load data
+        const { data: lbEntries } = await supabase.from('load_board').select('*');
+        
+        for (const lbEntry of (lbEntries || [])) {
+          // Find the truck
+          const truck = trucks.find(t => t.number === lbEntry.truck);
+          if (!truck) continue;
           
-          const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
-          await supabase.from('load_board').insert({
-            dispatcher_id: driver.dispatcherId || null,
-            driver: driver.name,
-            truck: truck.number,
-            trailer: trailer?.number || '',
-            trailer_type: trailer?.make || '',
-            email: driver.email || '',
-            status: 'mty',
+          // Find active load for this truck (prioritize: in_transit > dispatched > booked)
+          const activeStatuses = ['in_transit', 'dispatched', 'booked'];
+          let activeLoad = null;
+          for (const status of activeStatuses) {
+            activeLoad = loads.find(l => l.truckId === truck.id && l.status === status);
+            if (activeLoad) break;
+          }
+          
+          // Prepare update data
+          const updateData = {
             updated_at: new Date().toISOString()
-          });
-          added++;
+          };
+          
+          if (activeLoad) {
+            updateData.status = loadStatusToLBStatus[activeLoad.status] || 'mty';
+            // Show broker ref # or internal load ID
+            updateData.load_number = activeLoad.loadNumber || `#${activeLoad.id}`;
+            updateData.pickup_city = activeLoad.from || '';
+            updateData.delivery_city = activeLoad.to || '';
+            updateData.eta_date = activeLoad.deliveryDate || null;
+            updateData.eta_time = activeLoad.deliveryTime || '';
+          } else {
+            // No active load - truck is empty
+            updateData.status = 'mty';
+            updateData.load_number = '';
+            updateData.pickup_city = '';
+            updateData.delivery_city = '';
+            updateData.eta_date = null;
+            updateData.eta_time = '';
+          }
+          
+          await supabase.from('load_board').update(updateData).eq('id', lbEntry.id);
+          updated++;
         }
         
         await loadAllData();
         showStatus('saved', '✓ Synced');
-        alert(`Added ${added} entries to Load Board.`);
+        alert(`Load Board synced: ${added} added, ${updated} updated.`);
       };
 
       // Status order for sorting
@@ -819,8 +888,123 @@
         const idx = STATUS_ORDER.indexOf((status || '').toLowerCase().trim());
         return idx >= 0 ? idx : 999;
       };
+      
+      // Load status priority for sorting active loads
+      const LOAD_STATUS_PRIORITY = { 'in_transit': 1, 'dispatched': 2, 'booked': 3 };
 
-      // Sort load board by status
+      // Generate Load Board View: combines active loads + empty trucks
+      const generateLoadBoardView = () => {
+        const view = [];
+        const trucksWithActiveLoads = new Set();
+        
+        // 1. Add all active loads (in_transit, dispatched, booked)
+        const activeLoads = loads.filter(l => ['in_transit', 'dispatched', 'booked'].includes(l.status));
+        
+        for (const load of activeLoads) {
+          const truck = getTruck(load.truckId);
+          if (!truck) continue;
+          
+          trucksWithActiveLoads.add(truck.id);
+          
+          const driver = drivers.find(d => d.truckId === load.truckId);
+          const trailer = trailers.find(t => t.assignedTruckId === load.truckId);
+          const lbEntry = loadBoard.find(lb => lb.truck === truck.number);
+          
+          view.push({
+            id: `load-${load.id}`,
+            loadId: load.id,
+            isLoad: true,
+            dispatcher_id: load.dispatcherId || driver?.dispatcherId,
+            internal_id: load.id,
+            load_number: load.loadNumber || '',
+            driver: driver?.name || '',
+            truck: truck.number,
+            trailer: trailer?.number || '',
+            trailer_type: trailer?.make || '',
+            status: loadStatusToLBStatus[load.status] || 'mty',
+            loadStatus: load.status,
+            pickup_city: load.from || '',
+            pickup_date: load.pickupDate,
+            pickup_time: load.pickupTime,
+            delivery_city: load.to || '',
+            delivery_date: load.deliveryDate,
+            delivery_time: load.deliveryTime,
+            phone: driver?.phone || lbEntry?.phone || '',
+            notes: load.notes || '',
+            statusPriority: LOAD_STATUS_PRIORITY[load.status] || 99
+          });
+        }
+        
+        // 2. Add empty trucks (trucks without active loads)
+        for (const lbEntry of loadBoard) {
+          const truck = trucks.find(t => t.number === lbEntry.truck);
+          if (truck && trucksWithActiveLoads.has(truck.id)) continue; // Skip if has active load
+          
+          // Only add if status is an "empty" status
+          const emptyStatuses = ['mty', 'mty-today', 'home', 'brokedown', 'problems', 'book himself'];
+          if (!emptyStatuses.includes(lbEntry.status)) continue;
+          
+          view.push({
+            id: `lb-${lbEntry.id}`,
+            lbId: lbEntry.id,
+            isLoad: false,
+            dispatcher_id: lbEntry.dispatcher_id,
+            internal_id: null,
+            load_number: '',
+            driver: lbEntry.driver,
+            truck: lbEntry.truck,
+            trailer: lbEntry.trailer,
+            trailer_type: lbEntry.trailer_type,
+            status: lbEntry.status || 'mty',
+            loadStatus: null,
+            pickup_city: '',
+            pickup_date: null,
+            pickup_time: null,
+            delivery_city: '',
+            delivery_date: null,
+            delivery_time: null,
+            phone: lbEntry.phone || '',
+            notes: lbEntry.notes || '',
+            statusPriority: 99
+          });
+        }
+        
+        // 3. Sort: in_transit first, then dispatched, then booked (each sorted by PU date), then empty trucks
+        view.sort((a, b) => {
+          // First by load status priority
+          if (a.statusPriority !== b.statusPriority) return a.statusPriority - b.statusPriority;
+          // Then by pickup date (earliest first)
+          if (a.pickup_date && b.pickup_date) {
+            if (a.pickup_date !== b.pickup_date) return a.pickup_date.localeCompare(b.pickup_date);
+          }
+          if (a.pickup_date && !b.pickup_date) return -1;
+          if (!a.pickup_date && b.pickup_date) return 1;
+          // Then by truck number
+          return (a.truck || '').localeCompare(b.truck || '');
+        });
+        
+        return view;
+      };
+      
+      const loadBoardViewAll = generateLoadBoardView();
+      
+      // Filter by dispatcher
+      const loadBoardView = dispatcherFilter === 'all' 
+        ? loadBoardViewAll 
+        : loadBoardViewAll.filter(row => row.dispatcher_id === parseInt(dispatcherFilter));
+      
+      // Get dispatcher load counts for dropdown
+      const getDispatcherLoadCounts = () => {
+        const counts = {};
+        loadBoardViewAll.forEach(row => {
+          const dId = row.dispatcher_id || 0;
+          counts[dId] = (counts[dId] || 0) + 1;
+        });
+        return counts;
+      };
+      const dispatcherLoadCounts = getDispatcherLoadCounts();
+
+      // Sort load board by status (for manual entries only)
       const sortedLoadBoard = [...loadBoard].sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status));
 
       // Status colors for load board
@@ -943,23 +1127,30 @@
                   <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Dispatch Board</h1>
                   <button onClick={() => openModal('load', { from: '', to: '', customer: '', rate: '', miles: '', driverId: '', truckId: '', dispatcherId: '' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Load</button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
                   {statuses.map(st => (
                     <div key={st} style={{ background: '#e2e8f0', borderRadius: '8px', padding: '8px', minHeight: '300px' }}>
                       <div style={{ fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', marginBottom: '8px' }}>{st.replace('_', ' ')} ({loads.filter(l => l.status === st).length})</div>
-                      {loads.filter(l => l.status === st).map(load => (
+                      {loads.filter(l => l.status === st).map(load => {
+                        const pickups = load.pickups || [load.from];
+                        const deliveries = load.deliveries || [load.to];
+                        const routeDisplay = pickups.length > 1 || deliveries.length > 1 
+                          ? `${pickups.join(' → ')} → ${deliveries.join(' → ')}`
+                          : `${load.from} → ${load.to}`;
+                        return (
                         <div key={load.id} style={{ background: 'white', borderRadius: '6px', padding: '8px', marginBottom: '6px', fontSize: '11px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>#{load.id}</span><span style={{ color: '#10b981' }}>${load.rate}</span></div>
-                          <div style={{ color: '#64748b', margin: '4px 0' }}>{load.from} → {load.to}</div>
+                          <div style={{ color: '#64748b', margin: '4px 0' }}>{routeDisplay}</div>
                           <div style={{ color: '#64748b' }}>👤 {getDriver(load.driverId)?.name || '—'}</div>
+                          <div style={{ color: '#3b82f6', fontSize: '10px' }}>📋 {getDispatcher(load.dispatcherId)?.name || '—'}</div>
                           {load.status === 'delivered' && !load.podReceived && <button onClick={() => markPodReceived(load.id)} style={{ fontSize: '9px', padding: '4px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', width: '100%', marginTop: '4px' }}>Mark POD ✓</button>}
                           {load.status === 'delivered' && load.podReceived && <div style={{ color: '#10b981', marginTop: '4px' }}>✓ POD</div>}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
                             {st !== 'booked' && <button onClick={() => moveLoad(load.id, 'back')} style={{ padding: '2px 6px', fontSize: '10px', background: '#e2e8f0', border: 'none', borderRadius: '3px' }}>←</button>}
-                            {st !== 'closed' && <button onClick={() => moveLoad(load.id, 'next')} style={{ padding: '2px 6px', fontSize: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '3px', marginLeft: 'auto' }}>→</button>}
+                            {st !== 'pod_received' && <button onClick={() => moveLoad(load.id, 'next')} style={{ padding: '2px 6px', fontSize: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '3px', marginLeft: 'auto' }}>→</button>}
                           </div>
                         </div>
-                      ))}
+                      );})}
                     </div>
                   ))}
                 </div>
@@ -971,7 +1162,17 @@
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Load Board</h1>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select 
+                      value={dispatcherFilter} 
+                      onChange={e => setDispatcherFilter(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', background: dispatcherFilter === 'all' ? '#f1f5f9' : '#dbeafe', fontWeight: 'bold' }}
+                    >
+                      <option value="all">All Dispatchers ({loadBoardViewAll.length})</option>
+                      {dispatchers.map(d => (
+                        <option key={d.id} value={d.id}>{d.name} ({dispatcherLoadCounts[d.id] || 0})</option>
+                      ))}
+                    </select>
                     <button onClick={syncFleetToLoadBoard} style={{ padding: '8px 12px', background: '#f1f5f9', color: '#334155', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>🔄 Sync Fleet</button>
                     <button onClick={() => openModal('loadboard', { status: 'mty' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ Add Entry</button>
                   </div>
@@ -999,10 +1200,21 @@
                 </div>
                 
                 {/* Summary by Status */}
-                {sortedLoadBoard.length > 0 && (
+                {loadBoardView.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-                    {STATUS_ORDER.map(s => {
-                      const count = loadBoard.filter(r => (r.status || '').toLowerCase().trim() === s).length;
+                    {['in_transit', 'dispatched', 'booked'].map(s => {
+                      const count = loadBoardView.filter(r => r.loadStatus === s).length;
+                      if (count === 0) return null;
+                      const colors = { 'in_transit': '#6D9EEB', 'dispatched': '#F6B26B', 'booked': '#FFE599' };
+                      const labels = { 'in_transit': 'In Transit', 'dispatched': 'Dispatched', 'booked': 'Booked' };
+                      return (
+                        <div key={s} style={{ background: colors[s], padding: '6px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontWeight: 'bold' }}>{count}</span> {labels[s]}
+                        </div>
+                      );
+                    })}
+                    {STATUS_ORDER.filter(s => ['mty', 'mty-today', 'home', 'brokedown', 'problems', 'book himself'].includes(s)).map(s => {
+                      const count = loadBoardView.filter(r => !r.isLoad && r.status === s).length;
                       if (count === 0) return null;
                       return (
                         <div key={s} style={{ background: getStatusColor(s), padding: '6px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
@@ -1011,72 +1223,87 @@
                       );
                     })}
                     <div style={{ background: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
-                      Total: {loadBoard.length}
+                      Total: {loadBoardView.length}
                     </div>
                   </div>
                 )}
                 
-                {sortedLoadBoard.length === 0 ? (
+                {loadBoardView.length === 0 ? (
                   <div style={{ background: 'white', padding: '40px', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-                    <div>No entries yet. Click "+ Add Entry" to start.</div>
+                    <div>No entries yet. Click "🔄 Sync Fleet" to import trucks or "+ Add Entry" to add manually.</div>
                   </div>
                 ) : (
                   <div style={{ background: 'white', borderRadius: '8px', overflow: 'auto' }}>
                     <table style={{ fontSize: '11px' }}>
                       <thead>
                         <tr>
-                          {['Dispatcher', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'Next Stop', 'Details', 'ETA', 'Phone', 'Notes', ''].map(h => (
+                          {['Dispatcher', '#', 'Load #', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'PU Date', 'Delivery', 'DEL Date', 'Phone', 'Notes', ''].map(h => (
                             <th key={h} style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedLoadBoard.map((row) => (
-                          <tr key={row.id} style={{ background: getStatusColor(row.status) }}>
+                        {loadBoardView.map((row) => {
+                          const statusColors = { 'in_transit': '#6D9EEB', 'dispatched': '#F6B26B', 'booked': '#FFE599' };
+                          const bgColor = row.isLoad ? statusColors[row.loadStatus] : getStatusColor(row.status);
+                          const statusLabels = { 'in_transit': 'In Transit', 'dispatched': 'Dispatched', 'booked': 'Booked' };
+                          
+                          return (
+                          <tr key={row.id} style={{ background: bgColor }}>
                             <td style={{ padding: '6px', fontWeight: 'bold' }}>{getDispatcher(row.dispatcher_id)?.name || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px', fontWeight: 'bold', color: '#1e40af' }}>{row.internal_id || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px' }}>{row.load_number || '—'}</td>
                             <td style={{ padding: '6px' }}>{row.driver}</td>
                             <td style={{ padding: '6px', color: '#1e40af', fontWeight: 'bold' }}>{row.truck}</td>
                             <td style={{ padding: '6px' }}>{row.trailer}</td>
                             <td style={{ padding: '6px' }}>{row.trailer_type}</td>
                             <td style={{ padding: '6px' }}>
-                              <select 
-                                value={row.status || 'mty'} 
-                                onChange={(e) => updateLoadBoardStatus(row.id, e.target.value)}
-                                style={{ padding: '2px 4px', fontSize: '10px', border: '1px solid rgba(0,0,0,0.2)', borderRadius: '4px', background: 'rgba(255,255,255,0.8)', fontWeight: 'bold' }}
-                              >
-                                {STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              {row.isLoad ? (
+                                <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', background: 'rgba(255,255,255,0.5)' }}>
+                                  {statusLabels[row.loadStatus] || row.loadStatus}
+                                </span>
+                              ) : (
+                                <select 
+                                  value={row.status || 'mty'} 
+                                  onChange={(e) => updateLoadBoardStatus(row.lbId, e.target.value)}
+                                  style={{ padding: '2px 4px', fontSize: '10px', border: '1px solid rgba(0,0,0,0.2)', borderRadius: '4px', background: 'rgba(255,255,255,0.8)', fontWeight: 'bold' }}
+                                >
+                                  {STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              )}
                             </td>
-                            <td style={{ padding: '6px' }}>{row.next_stop}</td>
-                            <td style={{ padding: '6px', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.details}>{row.details}</td>
-                            <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>{row.eta_date} {row.eta_time}</td>
+                            <td style={{ padding: '6px' }}>{row.pickup_city || '—'}</td>
+                            <td style={{ padding: '6px', whiteSpace: 'nowrap', fontSize: '10px' }}>{row.pickup_date || '—'}{row.pickup_time ? ` ${row.pickup_time}` : ''}</td>
+                            <td style={{ padding: '6px' }}>{row.delivery_city || '—'}</td>
+                            <td style={{ padding: '6px', whiteSpace: 'nowrap', fontSize: '10px' }}>{row.delivery_date || '—'}{row.delivery_time ? ` ${row.delivery_time}` : ''}</td>
                             <td style={{ padding: '6px', fontSize: '10px' }}>{row.phone}</td>
                             <td style={{ padding: '6px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.notes}>{row.notes}</td>
                             <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
-                              <button onClick={() => openModal('loadboard', { 
-                                id: row.id, 
-                                dispatcherId: row.dispatcher_id,
-                                driver: row.driver,
-                                company: row.company,
-                                mc: row.mc,
-                                truck: row.truck,
-                                trailer: row.trailer,
-                                phone: row.phone,
-                                trailerType: row.trailer_type,
-                                nextStop: row.next_stop,
-                                details: row.details,
-                                etaDate: row.eta_date,
-                                etaTime: row.eta_time,
-                                status: row.status,
-                                email: row.email,
-                                homeLocation: row.home_location,
-                                notes: row.notes
-                              })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button>
-                              <button onClick={() => deleteLoadBoardEntry(row.id)} className="btn-sm btn-delete">✕</button>
+                              {row.isLoad ? (
+                                <button onClick={() => {
+                                  const load = loads.find(l => l.id === row.loadId);
+                                  if (load) openModal('load', { id: load.id, company: load.company, loadNumber: load.loadNumber, customer: load.customer, from: load.from, to: load.to, pickups: load.pickups || [load.from], deliveries: load.deliveries || [load.to], rate: load.rate, miles: load.miles, deadhead: load.deadhead, driverId: load.driverId, truckId: load.truckId, dispatcherId: load.dispatcherId, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, pickupTime: load.pickupTime, deliveryTime: load.deliveryTime, notes: load.notes, lumperFee: load.lumperFee, lumperPaidBy: load.lumperPaidBy, detentionFee: load.detentionFee, detentionPaidBy: load.detentionPaidBy, lateFee: load.lateFee, lateFeePaidBy: load.lateFeePaidBy, layoverFee: load.layoverFee, layoverPaidBy: load.layoverPaidBy });
+                                }} className="btn-sm btn-edit">✎</button>
+                              ) : (
+                                <>
+                                  <button onClick={() => openModal('loadboard', { 
+                                    id: row.lbId, 
+                                    dispatcherId: row.dispatcher_id,
+                                    driver: row.driver,
+                                    truck: row.truck,
+                                    trailer: row.trailer,
+                                    phone: row.phone,
+                                    trailerType: row.trailer_type,
+                                    status: row.status,
+                                    notes: row.notes
+                                  })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button>
+                                  <button onClick={() => deleteLoadBoardEntry(row.lbId)} className="btn-sm btn-delete">✕</button>
+                                </>
+                              )}
                             </td>
                           </tr>
-                        ))}
+                        );})}
                       </tbody>
                     </table>
                   </div>
@@ -1092,8 +1319,17 @@
                   <button onClick={() => openModal('load', { truckId: '' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Load</button>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['#', 'Load #', 'Customer', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{loads.map(l => (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{l.from} → {l.to}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: '#10b981', fontWeight: 'bold' }}>{l.miles > 0 ? '$' + (l.rate / l.miles).toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
+                  <table><thead><tr>{['#', 'Customer', 'Dispatcher', 'Company', 'Load #', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>{loads.map(l => {
+                      const pickups = l.pickups || [l.from];
+                      const deliveries = l.deliveries || [l.to];
+                      const routeDisplay = pickups.length > 1 || deliveries.length > 1 
+                        ? `${pickups.join(' → ')} → ${deliveries.join(' → ')}`
+                        : `${l.from} → ${l.to}`;
+                      const rpm = l.miles > 0 ? (l.rate / l.miles) : 0;
+                      const rpmColor = rpm >= 3 ? '#10b981' : rpm >= 2.5 ? '#22c55e' : rpm >= 2 ? '#f59e0b' : '#ef4444';
+                      return (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td>{l.customer}</td><td style={{ color: '#3b82f6' }}>{getDispatcher(l.dispatcherId)?.name || '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.company === 'AMC' ? '#fef3c7' : '#dbeafe' }}>{l.company || 'A2C'}</span></td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td style={{ fontSize: '11px' }}>{routeDisplay}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: rpmColor, fontWeight: 'bold' }}>{rpm > 0 ? '$' + rpm.toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'pod_received' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, pickups: l.pickups || [l.from], deliveries: l.deliveries || [l.to], rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>);
+                    })}</tbody>
                   </table>
                 </div>
               </div>
@@ -1307,14 +1543,21 @@
                 const totalMiles = dLoads.reduce((s, l) => s + l.miles, 0);
                 const avgRpm = totalMiles > 0 ? (totalRev / totalMiles).toFixed(2) : '—';
                 
+                // Trucks handled by this dispatcher (through drivers)
+                const dispatcherDrivers = drivers.filter(dr => dr.dispatcherId === d.id && dr.truckId);
+                const trucksHandled = dispatcherDrivers.length;
+                
+                // Active loads for this dispatcher
+                const activeLoads = loads.filter(l => l.dispatcherId === d.id && ['booked', 'dispatched', 'in_transit'].includes(l.status)).length;
+                
                 // Loads per time period
                 const loadsToday = loads.filter(l => l.dispatcherId === d.id && l.closedDate === todayStr).length;
                 const loadsWeek = loads.filter(l => l.dispatcherId === d.id && l.closedDate >= selectedWeek.start && l.closedDate <= selectedWeek.end).length;
                 const loadsMonth = loads.filter(l => l.dispatcherId === d.id && l.closedDate >= monthAgo.toISOString().split('T')[0]).length;
                 const loadsAllTime = loads.filter(l => l.dispatcherId === d.id).length;
                 
-                return { ...d, loads: dLoads.length, totalRev, totalMiles, avgRpm, loadsToday, loadsWeek, loadsMonth, loadsAllTime };
-              }).filter(d => d.loadsAllTime > 0);
+                return { ...d, loads: dLoads.length, totalRev, totalMiles, avgRpm, trucksHandled, activeLoads, loadsToday, loadsWeek, loadsMonth, loadsAllTime };
+              }).filter(d => d.loadsAllTime > 0 || d.trucksHandled > 0);
               
               // Truck stats
               const truckStats = trucks.map(t => {
@@ -1357,11 +1600,13 @@
                   <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px', color: '#1e40af' }}>📋 Dispatcher Performance</h2>
                   <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden', marginBottom: '20px' }}>
                     <table>
-                      <thead><tr>{['Dispatcher', 'Loads', 'Revenue', 'Miles', 'Avg $/mi', 'Today', 'Week', 'Month', 'All Time'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Dispatcher', 'Trucks', 'Active', 'Loads', 'Revenue', 'Miles', 'Avg $/mi', 'Today', 'Week', 'Month', 'All Time'].map(h => <th key={h}>{h}</th>)}</tr></thead>
                       <tbody>
                         {dispatcherStats.map(d => (
                           <tr key={d.id}>
                             <td style={{ fontWeight: 'bold' }}>{d.name}</td>
+                            <td style={{ fontWeight: 'bold', color: '#3b82f6' }}>{d.trucksHandled}</td>
+                            <td style={{ fontWeight: 'bold', color: '#f59e0b' }}>{d.activeLoads}</td>
                             <td>{d.loads}</td>
                             <td style={{ color: '#10b981' }}>${d.totalRev.toLocaleString()}</td>
                             <td>{d.totalMiles.toLocaleString()}</td>
@@ -1450,9 +1695,49 @@
                 <div className="form-group"><label>Customer *</label><input value={editData.customer || ''} onChange={e => setEditData({...editData, customer: e.target.value})} /></div>
                 <div className="form-group"><label>Load # (Broker's)</label><input value={editData.loadNumber || ''} onChange={e => setEditData({...editData, loadNumber: e.target.value})} placeholder="Broker ref #" /></div>
               </div>
-              <div className="form-row">
-                <div className="form-group"><label>From *</label><input value={editData.from || ''} onChange={e => setEditData({...editData, from: e.target.value})} placeholder="City, ST" /></div>
-                <div className="form-group"><label>To *</label><input value={editData.to || ''} onChange={e => setEditData({...editData, to: e.target.value})} placeholder="City, ST" /></div>
+              
+              {/* PICKUPS */}
+              <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#166534' }}>📦 Pickups</span>
+                  <button type="button" onClick={() => setEditData({...editData, pickups: [...(editData.pickups || [editData.from || '']), '']})} style={{ padding: '2px 8px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px' }}>+ Add PU</button>
+                </div>
+                {(editData.pickups || [editData.from || '']).map((pu, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                    <span style={{ width: '24px', fontSize: '11px', color: '#666', paddingTop: '8px' }}>#{idx + 1}</span>
+                    <input value={pu} onChange={e => {
+                      const newPickups = [...(editData.pickups || [editData.from || ''])];
+                      newPickups[idx] = e.target.value;
+                      setEditData({...editData, pickups: newPickups, from: newPickups[0]});
+                    }} placeholder="City, ST" style={{ flex: 1 }} />
+                    {idx > 0 && <button type="button" onClick={() => {
+                      const newPickups = (editData.pickups || []).filter((_, i) => i !== idx);
+                      setEditData({...editData, pickups: newPickups, from: newPickups[0]});
+                    }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontSize: '11px' }}>✕</button>}
+                  </div>
+                ))}
+              </div>
+              
+              {/* DELIVERIES */}
+              <div style={{ background: '#eff6ff', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e40af' }}>🚚 Deliveries</span>
+                  <button type="button" onClick={() => setEditData({...editData, deliveries: [...(editData.deliveries || [editData.to || '']), '']})} style={{ padding: '2px 8px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px' }}>+ Add DEL</button>
+                </div>
+                {(editData.deliveries || [editData.to || '']).map((del, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                    <span style={{ width: '24px', fontSize: '11px', color: '#666', paddingTop: '8px' }}>#{idx + 1}</span>
+                    <input value={del} onChange={e => {
+                      const newDeliveries = [...(editData.deliveries || [editData.to || ''])];
+                      newDeliveries[idx] = e.target.value;
+                      setEditData({...editData, deliveries: newDeliveries, to: newDeliveries[newDeliveries.length - 1]});
+                    }} placeholder="City, ST" style={{ flex: 1 }} />
+                    {idx > 0 && <button type="button" onClick={() => {
+                      const newDeliveries = (editData.deliveries || []).filter((_, i) => i !== idx);
+                      setEditData({...editData, deliveries: newDeliveries, to: newDeliveries[newDeliveries.length - 1]});
+                    }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontSize: '11px' }}>✕</button>}
+                  </div>
+                ))}
               </div>
               <div className="form-row">
                 <div className="form-group"><label>Rate ($) *</label><input type="number" value={editData.rate || ''} onChange={e => setEditData({...editData, rate: e.target.value})} /></div>
@@ -1461,11 +1746,25 @@
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <input type="number" value={editData.miles || ''} onChange={e => setEditData({...editData, miles: e.target.value})} style={{ flex: 1 }} />
                     <button type="button" onClick={async () => {
-                      if (!editData.from || !editData.to) { alert('Enter From and To first'); return; }
-                      setEditData({...editData, miles: '...'});
-                      const miles = await calculateMiles(editData.from, editData.to);
-                      setEditData(prev => ({...prev, miles: miles || ''}));
-                      if (!miles) alert('Could not calculate miles. Check addresses.');
+                      const pickups = (editData.pickups || [editData.from]).filter(p => p);
+                      const deliveries = (editData.deliveries || [editData.to]).filter(d => d);
+                      if (pickups.length === 0 || deliveries.length === 0) { alert('Enter at least one pickup and delivery'); return; }
+                      
+                      // Build route: all pickups then all deliveries
+                      const route = [...pickups, ...deliveries];
+                      if (route.length < 2) { alert('Need at least 2 stops'); return; }
+                      
+                      setEditData(prev => ({...prev, miles: '...'}));
+                      let totalMiles = 0;
+                      
+                      // Calculate miles between each consecutive stop
+                      for (let i = 0; i < route.length - 1; i++) {
+                        const miles = await calculateMiles(route[i], route[i + 1]);
+                        if (miles) totalMiles += miles;
+                      }
+                      
+                      setEditData(prev => ({...prev, miles: totalMiles || ''}));
+                      if (!totalMiles) alert('Could not calculate miles. Check addresses.');
                     }} style={{ padding: '6px 10px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>📍 Calc</button>
                   </div>
                   {editData.miles && editData.rate && editData.miles !== '...' && (
@@ -1478,12 +1777,12 @@
                     <input type="number" value={editData.deadhead || ''} onChange={e => setEditData({...editData, deadhead: e.target.value})} style={{ flex: 1 }} placeholder="DH miles" />
                     <button type="button" onClick={async () => {
                       if (!editData.truckId || !editData.from) { alert('Select truck and enter From first'); return; }
-                      const completedStatuses = ['delivered', 'pod_received'];
-                      const truckLoads = loads.filter(l => l.truckId === parseInt(editData.truckId) && completedStatuses.includes(l.status)).sort((a,b) => new Date(b.deliveryDate || 0) - new Date(a.deliveryDate || 0));
-                      const lastDelivery = truckLoads[0]?.to;
-                      if (!lastDelivery) { alert('No previous delivery found for this truck'); return; }
-                      setEditData(prev => ({...prev, deadhead: '...', lastDelivery}));
-                      const dh = await calculateMiles(lastDelivery, editData.from);
+                      const selectedTruckId = parseInt(editData.truckId);
+                      const truckLoads = loads.filter(l => Number(l.truckId) === selectedTruckId && l.id !== editData.id).sort((a,b) => b.id - a.id);
+                      const lastLoad = truckLoads[0];
+                      if (!lastLoad?.to) { alert('No previous load found for this truck'); return; }
+                      setEditData(prev => ({...prev, deadhead: '...', lastDelivery: lastLoad.to}));
+                      const dh = await calculateMiles(lastLoad.to, editData.from);
                       setEditData(prev => ({...prev, deadhead: dh || ''}));
                       if (!dh) alert('Could not calculate deadhead.');
                     }} style={{ padding: '6px 10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>📍 DH</button>
@@ -1661,6 +1960,7 @@
               <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>{editData.id ? 'Edit Entry' : 'New Entry'}</h2>
               <div className="form-row">
                 <div className="form-group"><label>Dispatcher</label><select value={editData.dispatcherId || ''} onChange={e => setEditData({...editData, dispatcherId: e.target.value})}><option value="">Select...</option>{dispatchers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+                <div className="form-group"><label>Load #</label><input value={editData.loadNumber || ''} onChange={e => setEditData({...editData, loadNumber: e.target.value})} placeholder="Broker ref #" /></div>
                 <div className="form-group"><label>Status</label><select value={editData.status || 'mty'} onChange={e => setEditData({...editData, status: e.target.value})}>{STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
               </div>
               <div className="form-row">
@@ -1679,11 +1979,13 @@
                 <div className="form-group"><label>Company</label><input value={editData.company || ''} onChange={e => setEditData({...editData, company: e.target.value})} /></div>
                 <div className="form-group"><label>MC#</label><input value={editData.mc || ''} onChange={e => setEditData({...editData, mc: e.target.value})} /></div>
               </div>
-              <div className="form-group"><label>Next Stop</label><input value={editData.nextStop || ''} onChange={e => setEditData({...editData, nextStop: e.target.value})} /></div>
-              <div className="form-group"><label>Details</label><input value={editData.details || ''} onChange={e => setEditData({...editData, details: e.target.value})} /></div>
               <div className="form-row">
-                <div className="form-group"><label>ETA Date</label><input type="date" value={editData.etaDate || ''} onChange={e => setEditData({...editData, etaDate: e.target.value})} /></div>
-                <div className="form-group"><label>ETA Time</label><input type="time" value={editData.etaTime || ''} onChange={e => setEditData({...editData, etaTime: e.target.value})} /></div>
+                <div className="form-group"><label>Pickup City</label><input value={editData.pickupCity || ''} onChange={e => setEditData({...editData, pickupCity: e.target.value})} placeholder="City, ST" /></div>
+                <div className="form-group"><label>Delivery City</label><input value={editData.deliveryCity || ''} onChange={e => setEditData({...editData, deliveryCity: e.target.value})} placeholder="City, ST" /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Delivery Date</label><input type="date" value={editData.etaDate || ''} onChange={e => setEditData({...editData, etaDate: e.target.value})} /></div>
+                <div className="form-group"><label>Delivery Time</label><input type="time" value={editData.etaTime || ''} onChange={e => setEditData({...editData, etaTime: e.target.value})} /></div>
               </div>
               <div className="form-group"><label>Email</label><input type="email" value={editData.email || ''} onChange={e => setEditData({...editData, email: e.target.value})} /></div>
               <div className="form-group"><label>Notes</label><textarea rows="2" value={editData.notes || ''} onChange={e => setEditData({...editData, notes: e.target.value})} style={{ width: '100%', resize: 'vertical' }} /></div>
