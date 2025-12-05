@@ -74,13 +74,13 @@
     };
 
     // ============ DATA CONVERTERS ============
-    const toDriver = (row) => ({ id: row.id, name: row.name, type: row.type, payType: row.pay_type, payRate: parseFloat(row.pay_rate), minMiles: row.min_miles, overageRate: row.overage_rate ? parseFloat(row.overage_rate) : null, truckId: row.truck_id, dispatcherId: row.dispatcher_id, email: row.email, ooInsurance: parseFloat(row.oo_insurance) || 0, ooEld: parseFloat(row.oo_eld) || 0, ooTrailerRental: parseFloat(row.oo_trailer_rental) || 0 });
-    const toTruck = (row) => ({ id: row.id, number: row.number, type: row.type, year: row.year, make: row.make, monthlyPayment: parseFloat(row.monthly_payment) || 0, autoIns: parseFloat(row.auto_ins) || 0, cargoIns: parseFloat(row.cargo_ins) || 0, pdIns: parseFloat(row.pd_ins) || 0, eld: parseFloat(row.eld) || 0, dispatcherId: row.dispatcher_id });
-    const toLoad = (row) => ({ id: row.id, customer: row.customer, from: row.origin, to: row.destination, rate: parseFloat(row.rate), miles: row.miles || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date });
+    const toDriver = (row) => ({ id: row.id, name: row.name, company: row.company || 'A2C', type: row.type, payType: row.pay_type, payRate: parseFloat(row.pay_rate), minMiles: row.min_miles, overageRate: row.overage_rate ? parseFloat(row.overage_rate) : null, truckId: row.truck_id, dispatcherId: row.dispatcher_id, email: row.email, phone: row.phone, homeLocation: row.home_location, ooInsurance: parseFloat(row.oo_insurance) || 0, ooEld: parseFloat(row.oo_eld) || 0, ooTrailerRental: parseFloat(row.oo_trailer_rental) || 0 });
+    const toTruck = (row) => ({ id: row.id, number: row.number, type: row.type, year: row.year, make: row.make, vin: row.vin, monthlyPayment: parseFloat(row.monthly_payment) || 0, autoIns: parseFloat(row.auto_ins) || 0, cargoIns: parseFloat(row.cargo_ins) || 0, pdIns: parseFloat(row.pd_ins) || 0, eld: parseFloat(row.eld) || 0, dispatcherId: row.dispatcher_id });
+    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
     const toAdvance = (row) => ({ id: row.id, driverId: row.driver_id, amount: parseFloat(row.amount), date: row.date, type: row.type, note: row.note, weekPeriod: row.week_period });
     const toBalance = (row) => ({ driverId: row.driver_id, previousOwed: parseFloat(row.previous_owed) || 0 });
     const toExpense = (row) => ({ id: row.id, category: row.category, truckId: row.truck_id, driverId: row.driver_id, trailerId: row.trailer_id, amount: parseFloat(row.amount), date: row.date, note: row.note });
-    const toTrailer = (row) => ({ id: row.id, number: row.number, assignedTruckId: row.assigned_truck_id, year: row.year, make: row.make, pdIns: parseFloat(row.pd_ins) || 0 });
+    const toTrailer = (row) => ({ id: row.id, number: row.number, assignedTruckId: row.assigned_truck_id, year: row.year, make: row.make, vin: row.vin, pdIns: parseFloat(row.pd_ins) || 0 });
     const toSettlement = (row) => ({ id: row.id, driverId: row.driver_id, weekPeriod: row.week_period, weekStart: row.week_start, weekEnd: row.week_end, grossPay: parseFloat(row.gross_pay), deductions: parseFloat(row.deductions), previousOwed: parseFloat(row.previous_owed), payback: parseFloat(row.payback), netPay: parseFloat(row.net_pay), newBalance: parseFloat(row.new_balance), status: row.status, emailSent: row.email_sent, createdAt: row.created_at });
 
     // ============ WEEK HELPERS ============
@@ -245,7 +245,7 @@
       const totalCompanyProfit = companyTruckProfit + totalOOCompanyProfit;
 
       // ============ DATABASE ACTIONS ============
-      const statuses = ['booked', 'dispatched', 'in_transit', 'delivered', 'pod_received', 'closed'];
+      const statuses = ['booked', 'dispatched', 'in_transit', 'delivered', 'pod_received'];
 
       // Map load status to load board status
       const loadStatusToLBStatus = {
@@ -329,15 +329,40 @@
       const saveLoad = async () => {
         const d = editData;
         if (!d.customer || !d.from || !d.to || !d.rate || !d.driverId || !d.truckId) { alert('Fill required fields'); return; }
+        if (d.pickupDate && d.deliveryDate && d.deliveryDate < d.pickupDate) { alert('Delivery date cannot be before pickup date'); return; }
         showStatus('saving', '↻ Saving...');
+        const loadData = {
+          company: d.company || 'A2C',
+          customer: d.customer,
+          load_number: d.loadNumber || null,
+          origin: d.from,
+          destination: d.to,
+          rate: parseFloat(d.rate),
+          miles: parseFloat(d.miles) || 0,
+          deadhead: parseFloat(d.deadhead) || 0,
+          driver_id: parseInt(d.driverId),
+          truck_id: parseInt(d.truckId),
+          dispatcher_id: parseInt(d.dispatcherId) || 1,
+          pickup_date: d.pickupDate || null,
+          delivery_date: d.deliveryDate || null,
+          pickup_time: d.pickupTime || null,
+          delivery_time: d.deliveryTime || null,
+          notes: d.notes || null,
+          lumper_fee: parseFloat(d.lumperFee) || null,
+          lumper_paid_by: d.lumperPaidBy || null,
+          detention_fee: parseFloat(d.detentionFee) || null,
+          detention_paid_by: d.detentionPaidBy || null,
+          late_fee: parseFloat(d.lateFee) || null,
+          late_fee_paid_by: d.lateFeePaidBy || null,
+          layover_fee: parseFloat(d.layoverFee) || null,
+          layover_paid_by: d.layoverPaidBy || null
+        };
         if (d.id) {
-          await supabase.from('loads').update({ customer: d.customer, origin: d.from, destination: d.to, rate: parseFloat(d.rate), miles: parseFloat(d.miles) || 0, driver_id: parseInt(d.driverId), truck_id: parseInt(d.truckId), dispatcher_id: parseInt(d.dispatcherId) || 1, pickup_date: d.pickupDate || null, delivery_date: d.deliveryDate || null }).eq('id', d.id);
-          // Update Load Board for edited load
+          await supabase.from('loads').update(loadData).eq('id', d.id);
           const existingLoad = loads.find(l => l.id === d.id);
           await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
         } else {
-          await supabase.from('loads').insert({ customer: d.customer, origin: d.from, destination: d.to, rate: parseFloat(d.rate), miles: parseFloat(d.miles) || 0, driver_id: parseInt(d.driverId), truck_id: parseInt(d.truckId), dispatcher_id: parseInt(d.dispatcherId) || 1, status: 'booked', pod_received: false, pickup_date: d.pickupDate || null, delivery_date: d.deliveryDate || null });
-          // Update Load Board for new load
+          await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false });
           await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
         }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
@@ -364,7 +389,7 @@
         const d = editData;
         if (!d.name || !d.type || !d.payType || !d.payRate) { alert('Fill required fields'); return; }
         showStatus('saving', '↻ Saving...');
-        const data = { name: d.name, type: d.type, pay_type: d.payType, pay_rate: parseFloat(d.payRate), min_miles: d.minMiles ? parseInt(d.minMiles) : null, overage_rate: d.overageRate ? parseFloat(d.overageRate) : null, truck_id: d.truckId ? parseInt(d.truckId) : null, dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : 1, email: d.email || null, oo_insurance: parseFloat(d.ooInsurance) || 0, oo_eld: parseFloat(d.ooEld) || 0, oo_trailer_rental: parseFloat(d.ooTrailerRental) || 0 };
+        const data = { name: d.name, company: d.company || 'A2C', type: d.type, pay_type: d.payType, pay_rate: parseFloat(d.payRate), min_miles: d.minMiles ? parseInt(d.minMiles) : null, overage_rate: d.overageRate ? parseFloat(d.overageRate) : null, truck_id: d.truckId ? parseInt(d.truckId) : null, dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : 1, email: d.email || null, phone: d.phone || null, home_location: d.homeLocation || null, oo_insurance: parseFloat(d.ooInsurance) || 0, oo_eld: parseFloat(d.ooEld) || 0, oo_trailer_rental: parseFloat(d.ooTrailerRental) || 0 };
         if (d.id) {
           await supabase.from('drivers').update(data).eq('id', d.id);
         } else {
@@ -386,6 +411,8 @@
               trailer: trailer?.number || '',
               trailer_type: trailer?.make || '',
               email: d.email || '',
+              phone: d.phone || '',
+              home_location: d.homeLocation || '',
               status: 'mty',
               updated_at: new Date().toISOString()
             };
@@ -443,7 +470,7 @@
         const d = editData;
         if (!d.number || !d.type) { alert('Fill required fields'); return; }
         showStatus('saving', '↻ Saving...');
-        const data = { number: d.number, type: d.type, year: d.year ? parseInt(d.year) : null, make: d.make || null, monthly_payment: parseFloat(d.monthlyPayment) || 0, auto_ins: parseFloat(d.autoIns) || 0, cargo_ins: parseFloat(d.cargoIns) || 0, pd_ins: parseFloat(d.pdIns) || 0, eld: parseFloat(d.eld) || 0, dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : 1 };
+        const data = { number: d.number, type: d.type, year: d.year ? parseInt(d.year) : null, make: d.make || null, vin: d.vin || null, monthly_payment: parseFloat(d.monthlyPayment) || 0, auto_ins: parseFloat(d.autoIns) || 0, cargo_ins: parseFloat(d.cargoIns) || 0, pd_ins: parseFloat(d.pdIns) || 0, eld: parseFloat(d.eld) || 0, dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : 1 };
         if (d.id) { await supabase.from('trucks').update(data).eq('id', d.id); }
         else { await supabase.from('trucks').insert(data); }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
@@ -492,7 +519,7 @@
         const d = editData;
         if (!d.number) { alert('Trailer number required'); return; }
         showStatus('saving', '↻ Saving...');
-        const data = { number: d.number, assigned_truck_id: d.assignedTruckId ? parseInt(d.assignedTruckId) : null, year: d.year ? parseInt(d.year) : null, make: d.make || null, pd_ins: parseFloat(d.pdIns) || 0 };
+        const data = { number: d.number, assigned_truck_id: d.assignedTruckId ? parseInt(d.assignedTruckId) : null, year: d.year ? parseInt(d.year) : null, make: d.make || null, vin: d.vin || null, pd_ins: parseFloat(d.pdIns) || 0 };
         if (d.id) { await supabase.from('trailers').update(data).eq('id', d.id); }
         else { await supabase.from('trailers').insert(data); }
         
@@ -840,7 +867,7 @@
             {['dashboard', 'dispatch', 'loadboard', 'loads', 'drivers', 'trucks', 'trailers', 'adddispatch', 'advances', 'expenses', 'settlements', 'stats', 'pnl'].map(t => (
               <button key={t} onClick={() => setTab(t)} style={{ display: 'block', width: '100%', padding: '10px', marginBottom: '4px', background: tab === t ? 'rgba(251,191,36,0.2)' : 'transparent', color: tab === t ? '#fbbf24' : '#94a3b8', border: 'none', borderRadius: '6px', textAlign: 'left', fontSize: '12px' }}>
                 {t === 'dashboard' && '📊 '}{t === 'dispatch' && '🚛 '}{t === 'loadboard' && '📋 '}{t === 'loads' && '📦 '}{t === 'drivers' && '👤 '}{t === 'trucks' && '🔧 '}{t === 'trailers' && '🚃 '}{t === 'adddispatch' && '🎧 '}{t === 'advances' && '💵 '}{t === 'expenses' && '🧾 '}{t === 'settlements' && '📄 '}{t === 'stats' && '📈 '}{t === 'pnl' && '💰 '}
-                {t === 'adddispatch' ? 'Add Dispatch' : t === 'loadboard' ? 'Load Board' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'adddispatch' ? 'Add Dispatch' : t === 'loadboard' ? 'Load Board' : t === 'loads' ? 'Loads Details' : t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
             ))}
             <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '6px', fontSize: '10px' }}>
@@ -1061,12 +1088,12 @@
             {tab === 'loads' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Loads</h1>
+                  <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Loads Details</h1>
                   <button onClick={() => openModal('load', { truckId: '' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Load</button>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['#', 'Customer', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{loads.map(l => (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{l.from} → {l.to}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, customer: l.customer, from: l.from, to: l.to, rate: l.rate, miles: l.miles, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
+                  <table><thead><tr>{['#', 'Load #', 'Customer', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>{loads.map(l => (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{l.from} → {l.to}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: '#10b981', fontWeight: 'bold' }}>{l.miles > 0 ? '$' + (l.rate / l.miles).toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
                   </table>
                 </div>
               </div>
@@ -1077,11 +1104,11 @@
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Drivers</h1>
-                  <button onClick={() => openModal('driver', { type: 'company', payType: 'per_mile' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Driver</button>
+                  <button onClick={() => openModal('driver', { type: 'company', payType: 'per_mile', company: 'A2C' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Driver</button>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['Name', 'Type', 'Dispatcher', 'Pay', 'Truck', 'Email', 'Balance', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{drivers.map(d => { const st = currentSettlements.find(s => s.driver.id === d.id); return (<tr key={d.id}><td style={{ fontWeight: 'bold' }}>{d.name}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: d.type === 'owner_operator' ? '#f3e8ff' : '#dbeafe' }}>{d.type === 'owner_operator' ? 'O/O' : 'Co'}</span></td><td style={{ color: '#3b82f6' }}>{getDispatcher(d.dispatcherId)?.name || '—'}</td><td>{d.payType === 'per_mile' ? `$${d.payRate}/mi` : d.payType === 'percentage' ? `${d.payRate}%` : `$${d.payRate}`}</td><td>{getTruck(d.truckId)?.number || '—'}</td><td style={{ fontSize: '11px' }}>{d.email || '—'}</td><td>{st?.newBalance > 0 ? <span style={{ color: '#dc2626', fontWeight: 'bold' }}>${st.newBalance.toFixed(0)}</span> : <span style={{ color: '#10b981' }}>Clear</span>}</td><td><button onClick={() => openModal('driver', { id: d.id, name: d.name, type: d.type, payType: d.payType, payRate: d.payRate, minMiles: d.minMiles, overageRate: d.overageRate, truckId: d.truckId, dispatcherId: d.dispatcherId, email: d.email, ooInsurance: d.ooInsurance, ooEld: d.ooEld, ooTrailerRental: d.ooTrailerRental })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteDriver(d.id)} className="btn-sm btn-delete">✕</button></td></tr>); })}</tbody>
+                  <table><thead><tr>{['Name', 'Company', 'Type', 'Phone', 'Truck', 'Home', 'Balance', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>{drivers.map(d => { const st = currentSettlements.find(s => s.driver.id === d.id); return (<tr key={d.id}><td style={{ fontWeight: 'bold' }}>{d.name}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: d.company === 'AMC' ? '#fef3c7' : '#dbeafe' }}>{d.company || 'A2C'}</span></td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: d.type === 'owner_operator' ? '#f3e8ff' : '#d1fae5' }}>{d.type === 'owner_operator' ? 'O/O' : 'Comp'}</span></td><td style={{ fontSize: '11px' }}>{d.phone || '—'}</td><td style={{ color: '#3b82f6' }}>{getTruck(d.truckId)?.number || '—'}</td><td style={{ fontSize: '11px' }}>{d.homeLocation || '—'}</td><td>{st?.newBalance > 0 ? <span style={{ color: '#dc2626', fontWeight: 'bold' }}>${st.newBalance.toFixed(0)}</span> : <span style={{ color: '#10b981' }}>Clear</span>}</td><td><button onClick={() => openModal('driver', { id: d.id, name: d.name, company: d.company, type: d.type, payType: d.payType, payRate: d.payRate, minMiles: d.minMiles, overageRate: d.overageRate, truckId: d.truckId, dispatcherId: d.dispatcherId, email: d.email, phone: d.phone, homeLocation: d.homeLocation, ooInsurance: d.ooInsurance, ooEld: d.ooEld, ooTrailerRental: d.ooTrailerRental })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteDriver(d.id)} className="btn-sm btn-delete">✕</button></td></tr>); })}</tbody>
                   </table>
                 </div>
               </div>
@@ -1095,8 +1122,8 @@
                   <button onClick={() => openModal('truck', { type: 'company' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Truck</button>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['Truck', 'Type', 'Year/Make', 'Payment', 'Insurance', 'ELD', 'Driver', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{trucks.map(t => (<tr key={t.id}><td style={{ fontWeight: 'bold' }}>{t.number}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: t.type === 'owner_operator' ? '#f3e8ff' : '#dbeafe' }}>{t.type === 'owner_operator' ? 'O/O' : 'Co'}</span></td><td>{t.year} {t.make}</td><td>{t.monthlyPayment > 0 ? `$${t.monthlyPayment}` : '—'}</td><td>{(t.autoIns + t.cargoIns + t.pdIns) > 0 ? `$${(t.autoIns + t.cargoIns + t.pdIns)}` : '—'}</td><td>{t.eld > 0 ? `$${t.eld}` : '—'}</td><td>{drivers.find(d => d.truckId === t.id)?.name || '—'}</td><td><button onClick={() => openModal('truck', { id: t.id, number: t.number, type: t.type, year: t.year, make: t.make, monthlyPayment: t.monthlyPayment, autoIns: t.autoIns, cargoIns: t.cargoIns, pdIns: t.pdIns, eld: t.eld, dispatcherId: t.dispatcherId })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteTruck(t.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
+                  <table><thead><tr>{['Truck', 'Type', 'Year/Make', 'VIN', 'Payment', 'Insurance', 'Driver', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>{trucks.map(t => (<tr key={t.id}><td style={{ fontWeight: 'bold' }}>{t.number}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: t.type === 'owner_operator' ? '#f3e8ff' : '#dbeafe' }}>{t.type === 'owner_operator' ? 'O/O' : 'Co'}</span></td><td>{t.year} {t.make}</td><td style={{ fontSize: '10px' }}>{t.vin || '—'}</td><td>{t.monthlyPayment > 0 ? `$${t.monthlyPayment}` : '—'}</td><td>{(t.autoIns + t.cargoIns + t.pdIns) > 0 ? `$${(t.autoIns + t.cargoIns + t.pdIns)}` : '—'}</td><td>{drivers.find(d => d.truckId === t.id)?.name || '—'}</td><td><button onClick={() => openModal('truck', { id: t.id, number: t.number, type: t.type, year: t.year, make: t.make, vin: t.vin, monthlyPayment: t.monthlyPayment, autoIns: t.autoIns, cargoIns: t.cargoIns, pdIns: t.pdIns, eld: t.eld, dispatcherId: t.dispatcherId })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteTruck(t.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
                   </table>
                 </div>
               </div>
@@ -1115,8 +1142,8 @@
                   <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#666' }}>Monthly Insurance</div><div style={{ fontSize: '24px', fontWeight: 'bold' }}>${trailers.reduce((s, t) => s + (t.pdIns || 0), 0).toFixed(0)}</div></div>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['Trailer #', 'Year/Make', 'Assigned Truck', 'PD Insurance', 'Total Maint. Cost', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>{trailers.map(t => (<tr key={t.id}><td style={{ fontWeight: 'bold' }}>{t.number}</td><td>{t.year} {t.make || ''}</td><td style={{ color: '#3b82f6' }}>{getTruck(t.assignedTruckId)?.number || '—'}</td><td>{t.pdIns > 0 ? `$${t.pdIns}/mo` : '—'}</td><td style={{ color: '#ef4444', fontWeight: 'bold' }}>${getTrailerTotalCost(t.id).toFixed(0)}</td><td><button onClick={() => openModal('trailer', { id: t.id, number: t.number, assignedTruckId: t.assignedTruckId, year: t.year, make: t.make, pdIns: t.pdIns })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteTrailer(t.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
+                  <table><thead><tr>{['Trailer #', 'Year/Make', 'VIN', 'Assigned Truck', 'PD Insurance', 'Total Maint. Cost', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>{trailers.map(t => (<tr key={t.id}><td style={{ fontWeight: 'bold' }}>{t.number}</td><td>{t.year} {t.make || ''}</td><td style={{ fontSize: '10px' }}>{t.vin || '—'}</td><td style={{ color: '#3b82f6' }}>{getTruck(t.assignedTruckId)?.number || '—'}</td><td>{t.pdIns > 0 ? `$${t.pdIns}/mo` : '—'}</td><td style={{ color: '#ef4444', fontWeight: 'bold' }}>${getTrailerTotalCost(t.id).toFixed(0)}</td><td><button onClick={() => openModal('trailer', { id: t.id, number: t.number, assignedTruckId: t.assignedTruckId, year: t.year, make: t.make, vin: t.vin, pdIns: t.pdIns })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteTrailer(t.id)} className="btn-sm btn-delete">✕</button></td></tr>))}</tbody>
                   </table>
                 </div>
               </div>
@@ -1295,8 +1322,15 @@
                 const totalRev = tLoads.reduce((s, l) => s + l.rate, 0);
                 const totalMiles = tLoads.reduce((s, l) => s + l.miles, 0);
                 const avgRpm = totalMiles > 0 ? (totalRev / totalMiles).toFixed(2) : '—';
-                return { ...t, loads: tLoads.length, totalRev, totalMiles, avgRpm };
+                const avgPerLoad = tLoads.length > 0 ? (totalRev / tLoads.length).toFixed(0) : '—';
+                return { ...t, loads: tLoads.length, totalRev, totalMiles, avgRpm, avgPerLoad };
               }).filter(t => t.loads > 0);
+              
+              // Fleet averages
+              const fleetTotalRev = filteredLoads.reduce((s, l) => s + l.rate, 0);
+              const fleetTotalMiles = filteredLoads.reduce((s, l) => s + l.miles, 0);
+              const fleetAvgRpm = fleetTotalMiles > 0 ? (fleetTotalRev / fleetTotalMiles).toFixed(2) : '—';
+              const fleetAvgPerLoad = filteredLoads.length > 0 ? (fleetTotalRev / filteredLoads.length).toFixed(0) : '—';
               
               return (
                 <div>
@@ -1309,6 +1343,14 @@
                         </button>
                       ))}
                     </div>
+                  </div>
+                  
+                  {/* FLEET SUMMARY */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                    <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#666' }}>Total Loads</div><div style={{ fontSize: '24px', fontWeight: 'bold' }}>{filteredLoads.length}</div></div>
+                    <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#666' }}>Total Revenue</div><div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>${fleetTotalRev.toLocaleString()}</div></div>
+                    <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#666' }}>Fleet Avg $/Mile</div><div style={{ fontSize: '24px', fontWeight: 'bold', color: '#3b82f6' }}>${fleetAvgRpm}</div></div>
+                    <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#666' }}>Fleet Avg $/Load</div><div style={{ fontSize: '24px', fontWeight: 'bold', color: '#8b5cf6' }}>${fleetAvgPerLoad}</div></div>
                   </div>
                   
                   {/* DISPATCHER STATS */}
@@ -1338,7 +1380,7 @@
                   <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px', color: '#1e40af' }}>🚛 Truck Performance</h2>
                   <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden', marginBottom: '20px' }}>
                     <table>
-                      <thead><tr>{['Truck', 'Driver', 'Loads', 'Revenue', 'Miles', 'Avg $/mi'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Truck', 'Driver', 'Loads', 'Revenue', 'Miles', 'Avg $/mi', 'Avg $/Load'].map(h => <th key={h}>{h}</th>)}</tr></thead>
                       <tbody>
                         {truckStats.map(t => (
                           <tr key={t.id}>
@@ -1348,6 +1390,7 @@
                             <td style={{ color: '#10b981' }}>${t.totalRev.toLocaleString()}</td>
                             <td>{t.totalMiles.toLocaleString()}</td>
                             <td style={{ fontWeight: 'bold', color: parseFloat(t.avgRpm) >= 2.5 ? '#10b981' : parseFloat(t.avgRpm) >= 2 ? '#f59e0b' : '#ef4444' }}>${t.avgRpm}</td>
+                            <td style={{ fontWeight: 'bold', color: '#8b5cf6' }}>${t.avgPerLoad}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1400,9 +1443,13 @@
 
           {/* MODALS */}
           {modal === 'load' && (
-            <div className="modal-overlay" onClick={() => setModal(null)}><div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-overlay" onClick={() => setModal(null)}><div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>{editData.id ? 'Edit Load' : 'New Load'}</h2>
-              <div className="form-group"><label>Customer *</label><input value={editData.customer || ''} onChange={e => setEditData({...editData, customer: e.target.value})} /></div>
+              <div className="form-row">
+                <div className="form-group"><label>Company *</label><select value={editData.company || 'A2C'} onChange={e => setEditData({...editData, company: e.target.value})}><option value="A2C">A2C</option><option value="AMC">AMC</option></select></div>
+                <div className="form-group"><label>Customer *</label><input value={editData.customer || ''} onChange={e => setEditData({...editData, customer: e.target.value})} /></div>
+                <div className="form-group"><label>Load # (Broker's)</label><input value={editData.loadNumber || ''} onChange={e => setEditData({...editData, loadNumber: e.target.value})} placeholder="Broker ref #" /></div>
+              </div>
               <div className="form-row">
                 <div className="form-group"><label>From *</label><input value={editData.from || ''} onChange={e => setEditData({...editData, from: e.target.value})} placeholder="City, ST" /></div>
                 <div className="form-group"><label>To *</label><input value={editData.to || ''} onChange={e => setEditData({...editData, to: e.target.value})} placeholder="City, ST" /></div>
@@ -1425,16 +1472,58 @@
                     <div style={{ fontSize: '10px', color: '#10b981', marginTop: '4px' }}>${(editData.rate / editData.miles).toFixed(2)}/mile</div>
                   )}
                 </div>
+                <div className="form-group">
+                  <label>Deadhead</label>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <input type="number" value={editData.deadhead || ''} onChange={e => setEditData({...editData, deadhead: e.target.value})} style={{ flex: 1 }} placeholder="DH miles" />
+                    <button type="button" onClick={async () => {
+                      if (!editData.truckId || !editData.from) { alert('Select truck and enter From first'); return; }
+                      const truckLoads = loads.filter(l => l.truckId === parseInt(editData.truckId) && l.status === 'delivered').sort((a,b) => new Date(b.deliveryDate || 0) - new Date(a.deliveryDate || 0));
+                      const lastDelivery = truckLoads[0]?.to;
+                      if (!lastDelivery) { alert('No previous delivery found for this truck'); return; }
+                      setEditData(prev => ({...prev, deadhead: '...', lastDelivery}));
+                      const dh = await calculateMiles(lastDelivery, editData.from);
+                      setEditData(prev => ({...prev, deadhead: dh || ''}));
+                      if (!dh) alert('Could not calculate deadhead.');
+                    }} style={{ padding: '6px 10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>📍 DH</button>
+                  </div>
+                  {editData.lastDelivery && <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>From: {editData.lastDelivery}</div>}
+                </div>
               </div>
               <div className="form-row">
                 <div className="form-group"><label>Driver *</label><select value={editData.driverId || ''} onChange={e => setEditData({...editData, driverId: e.target.value})}><option value="">Select...</option>{drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
                 <div className="form-group"><label>Truck *</label><select value={editData.truckId || ''} onChange={e => setEditData({...editData, truckId: e.target.value})}><option value="">Select...</option>{trucks.map(t => <option key={t.id} value={t.id}>{t.number}</option>)}</select></div>
+                <div className="form-group"><label>Dispatcher</label><select value={editData.dispatcherId || ''} onChange={e => setEditData({...editData, dispatcherId: e.target.value})}><option value="">Select...</option>{dispatchers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
               </div>
-              <div className="form-group"><label>Dispatcher</label><select value={editData.dispatcherId || ''} onChange={e => setEditData({...editData, dispatcherId: e.target.value})}><option value="">Select...</option>{dispatchers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
               <div className="form-row">
                 <div className="form-group"><label>Pickup Date</label><input type="date" value={editData.pickupDate || ''} onChange={e => setEditData({...editData, pickupDate: e.target.value})} /></div>
-                <div className="form-group"><label>Delivery Date</label><input type="date" value={editData.deliveryDate || ''} onChange={e => setEditData({...editData, deliveryDate: e.target.value})} /></div>
+                <div className="form-group"><label>PU Time</label><input type="time" value={editData.pickupTime || ''} onChange={e => setEditData({...editData, pickupTime: e.target.value})} /></div>
+                <div className="form-group"><label>Delivery Date</label><input type="date" value={editData.deliveryDate || ''} onChange={e => {
+                  const delDate = e.target.value;
+                  if (editData.pickupDate && delDate < editData.pickupDate) {
+                    alert('Delivery date cannot be before pickup date');
+                    return;
+                  }
+                  setEditData({...editData, deliveryDate: delDate});
+                }} /></div>
+                <div className="form-group"><label>DEL Time</label><input type="time" value={editData.deliveryTime || ''} onChange={e => setEditData({...editData, deliveryTime: e.target.value})} /></div>
               </div>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', marginTop: '8px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px' }}>Additional Fees</div>
+                <div className="form-row">
+                  <div className="form-group"><label>Lumper $</label><input type="number" value={editData.lumperFee || ''} onChange={e => setEditData({...editData, lumperFee: e.target.value})} /></div>
+                  <div className="form-group"><label>Paid By</label><select value={editData.lumperPaidBy || ''} onChange={e => setEditData({...editData, lumperPaidBy: e.target.value})}><option value="">—</option><option value="A2C">A2C</option><option value="Broker">Broker</option><option value="Driver">Driver</option></select></div>
+                  <div className="form-group"><label>Detention $</label><input type="number" value={editData.detentionFee || ''} onChange={e => setEditData({...editData, detentionFee: e.target.value})} /></div>
+                  <div className="form-group"><label>Paid By</label><select value={editData.detentionPaidBy || ''} onChange={e => setEditData({...editData, detentionPaidBy: e.target.value})}><option value="">—</option><option value="A2C">A2C</option><option value="Broker">Broker</option><option value="Driver">Driver</option></select></div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>Late Fee $</label><input type="number" value={editData.lateFee || ''} onChange={e => setEditData({...editData, lateFee: e.target.value})} /></div>
+                  <div className="form-group"><label>Paid By</label><select value={editData.lateFeePaidBy || ''} onChange={e => setEditData({...editData, lateFeePaidBy: e.target.value})}><option value="">—</option><option value="A2C">A2C</option><option value="Broker">Broker</option><option value="Driver">Driver</option></select></div>
+                  <div className="form-group"><label>Layover $</label><input type="number" value={editData.layoverFee || ''} onChange={e => setEditData({...editData, layoverFee: e.target.value})} /></div>
+                  <div className="form-group"><label>Paid By</label><select value={editData.layoverPaidBy || ''} onChange={e => setEditData({...editData, layoverPaidBy: e.target.value})}><option value="">—</option><option value="A2C">A2C</option><option value="Broker">Broker</option><option value="Driver">Driver</option></select></div>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginTop: '8px' }}><label>Notes</label><textarea value={editData.notes || ''} onChange={e => setEditData({...editData, notes: e.target.value})} rows="2" style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', resize: 'vertical' }} placeholder="Internal notes..." /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}><button onClick={saveLoad} style={{ flex: 1, padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Save</button><button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', background: '#e2e8f0', border: 'none', borderRadius: '6px' }}>Cancel</button></div>
             </div></div>
           )}
@@ -1442,8 +1531,12 @@
           {modal === 'driver' && (
             <div className="modal-overlay" onClick={() => setModal(null)}><div className="modal" onClick={e => e.stopPropagation()}>
               <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>{editData.id ? 'Edit Driver' : 'New Driver'}</h2>
-              <div className="form-group"><label>Name *</label><input value={editData.name || ''} onChange={e => setEditData({...editData, name: e.target.value})} /></div>
               <div className="form-row">
+                <div className="form-group"><label>Name *</label><input value={editData.name || ''} onChange={e => setEditData({...editData, name: e.target.value})} /></div>
+                <div className="form-group"><label>Phone</label><input value={editData.phone || ''} onChange={e => setEditData({...editData, phone: e.target.value})} placeholder="(555) 555-5555" /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Company *</label><select value={editData.company || 'A2C'} onChange={e => setEditData({...editData, company: e.target.value})}><option value="A2C">A2C</option><option value="AMC">AMC</option></select></div>
                 <div className="form-group"><label>Type *</label><select value={editData.type || 'company'} onChange={e => setEditData({...editData, type: e.target.value})}><option value="company">Company Driver</option><option value="owner_operator">Owner Operator</option></select></div>
                 <div className="form-group"><label>Dispatcher</label><select value={editData.dispatcherId || ''} onChange={e => setEditData({...editData, dispatcherId: e.target.value})}><option value="">Select...</option>{dispatchers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
               </div>
@@ -1461,6 +1554,7 @@
                 <div className="form-group"><label>Truck</label><select value={editData.truckId || ''} onChange={e => setEditData({...editData, truckId: e.target.value})}><option value="">Select...</option>{trucks.map(t => <option key={t.id} value={t.id}>{t.number}</option>)}</select></div>
                 <div className="form-group"><label>Email</label><input type="email" value={editData.email || ''} onChange={e => setEditData({...editData, email: e.target.value})} /></div>
               </div>
+              <div className="form-group"><label>Home Location</label><input value={editData.homeLocation || ''} onChange={e => setEditData({...editData, homeLocation: e.target.value})} placeholder="City, ST" /></div>
               {editData.type === 'owner_operator' && (
                 <>
                   <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#7c3aed', marginTop: '12px', marginBottom: '8px' }}>O/O Weekly Deductions</div>
@@ -1486,6 +1580,7 @@
                 <div className="form-group"><label>Year</label><input type="number" value={editData.year || ''} onChange={e => setEditData({...editData, year: e.target.value})} /></div>
                 <div className="form-group"><label>Make</label><input value={editData.make || ''} onChange={e => setEditData({...editData, make: e.target.value})} placeholder="Freightliner" /></div>
               </div>
+              <div className="form-group"><label>VIN #</label><input value={editData.vin || ''} onChange={e => setEditData({...editData, vin: e.target.value})} placeholder="Vehicle identification number" /></div>
               {editData.type === 'company' && (
                 <>
                   <div className="form-group"><label>Monthly Payment</label><input type="number" value={editData.monthlyPayment || ''} onChange={e => setEditData({...editData, monthlyPayment: e.target.value})} /></div>
@@ -1515,6 +1610,7 @@
                 <div className="form-group"><label>Year</label><input type="number" value={editData.year || ''} onChange={e => setEditData({...editData, year: e.target.value})} /></div>
                 <div className="form-group"><label>Make</label><input value={editData.make || ''} onChange={e => setEditData({...editData, make: e.target.value})} placeholder="Great Dane" /></div>
               </div>
+              <div className="form-group"><label>VIN #</label><input value={editData.vin || ''} onChange={e => setEditData({...editData, vin: e.target.value})} placeholder="Vehicle identification number" /></div>
               <div className="form-group"><label>PD Insurance (monthly)</label><input type="number" value={editData.pdIns || ''} onChange={e => setEditData({...editData, pdIns: e.target.value})} /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}><button onClick={saveTrailer} style={{ flex: 1, padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Save</button><button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', background: '#e2e8f0', border: 'none', borderRadius: '6px' }}>Cancel</button></div>
             </div></div>
