@@ -119,6 +119,7 @@
       const [expenses, setExpenses] = useState([]);
       const [settlements, setSettlements] = useState([]);
       const [loadBoard, setLoadBoard] = useState([]);
+      const [dispatcherFilter, setDispatcherFilter] = useState('all');
       
       // Week selector
       const weekOptions = getWeekOptions();
@@ -968,10 +969,16 @@
           });
         }
         
-        // 3. Sort: in_transit first, then dispatched, then booked, then empty trucks
+        // 3. Sort: in_transit first, then dispatched, then booked (each sorted by PU date), then empty trucks
         view.sort((a, b) => {
           // First by load status priority
           if (a.statusPriority !== b.statusPriority) return a.statusPriority - b.statusPriority;
+          // Then by pickup date (earliest first)
+          if (a.pickup_date && b.pickup_date) {
+            if (a.pickup_date !== b.pickup_date) return a.pickup_date.localeCompare(b.pickup_date);
+          }
+          if (a.pickup_date && !b.pickup_date) return -1;
+          if (!a.pickup_date && b.pickup_date) return 1;
           // Then by truck number
           return (a.truck || '').localeCompare(b.truck || '');
         });
@@ -979,7 +986,23 @@
         return view;
       };
       
-      const loadBoardView = generateLoadBoardView();
+      const loadBoardViewAll = generateLoadBoardView();
+      
+      // Filter by dispatcher
+      const loadBoardView = dispatcherFilter === 'all' 
+        ? loadBoardViewAll 
+        : loadBoardViewAll.filter(row => row.dispatcher_id === parseInt(dispatcherFilter));
+      
+      // Get dispatcher load counts for dropdown
+      const getDispatcherLoadCounts = () => {
+        const counts = {};
+        loadBoardViewAll.forEach(row => {
+          const dId = row.dispatcher_id || 0;
+          counts[dId] = (counts[dId] || 0) + 1;
+        });
+        return counts;
+      };
+      const dispatcherLoadCounts = getDispatcherLoadCounts();
 
       // Sort load board by status (for manual entries only)
       const sortedLoadBoard = [...loadBoard].sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status));
@@ -1138,7 +1161,17 @@
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>Load Board</h1>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select 
+                      value={dispatcherFilter} 
+                      onChange={e => setDispatcherFilter(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', background: dispatcherFilter === 'all' ? '#f1f5f9' : '#dbeafe', fontWeight: 'bold' }}
+                    >
+                      <option value="all">All Dispatchers ({loadBoardViewAll.length})</option>
+                      {dispatchers.map(d => (
+                        <option key={d.id} value={d.id}>{d.name} ({dispatcherLoadCounts[d.id] || 0})</option>
+                      ))}
+                    </select>
                     <button onClick={syncFleetToLoadBoard} style={{ padding: '8px 12px', background: '#f1f5f9', color: '#334155', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>🔄 Sync Fleet</button>
                     <button onClick={() => openModal('loadboard', { status: 'mty' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ Add Entry</button>
                   </div>
@@ -1509,14 +1542,21 @@
                 const totalMiles = dLoads.reduce((s, l) => s + l.miles, 0);
                 const avgRpm = totalMiles > 0 ? (totalRev / totalMiles).toFixed(2) : '—';
                 
+                // Trucks handled by this dispatcher (through drivers)
+                const dispatcherDrivers = drivers.filter(dr => dr.dispatcherId === d.id && dr.truckId);
+                const trucksHandled = dispatcherDrivers.length;
+                
+                // Active loads for this dispatcher
+                const activeLoads = loads.filter(l => l.dispatcherId === d.id && ['booked', 'dispatched', 'in_transit'].includes(l.status)).length;
+                
                 // Loads per time period
                 const loadsToday = loads.filter(l => l.dispatcherId === d.id && l.closedDate === todayStr).length;
                 const loadsWeek = loads.filter(l => l.dispatcherId === d.id && l.closedDate >= selectedWeek.start && l.closedDate <= selectedWeek.end).length;
                 const loadsMonth = loads.filter(l => l.dispatcherId === d.id && l.closedDate >= monthAgo.toISOString().split('T')[0]).length;
                 const loadsAllTime = loads.filter(l => l.dispatcherId === d.id).length;
                 
-                return { ...d, loads: dLoads.length, totalRev, totalMiles, avgRpm, loadsToday, loadsWeek, loadsMonth, loadsAllTime };
-              }).filter(d => d.loadsAllTime > 0);
+                return { ...d, loads: dLoads.length, totalRev, totalMiles, avgRpm, trucksHandled, activeLoads, loadsToday, loadsWeek, loadsMonth, loadsAllTime };
+              }).filter(d => d.loadsAllTime > 0 || d.trucksHandled > 0);
               
               // Truck stats
               const truckStats = trucks.map(t => {
@@ -1559,11 +1599,13 @@
                   <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px', color: '#1e40af' }}>📋 Dispatcher Performance</h2>
                   <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden', marginBottom: '20px' }}>
                     <table>
-                      <thead><tr>{['Dispatcher', 'Loads', 'Revenue', 'Miles', 'Avg $/mi', 'Today', 'Week', 'Month', 'All Time'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Dispatcher', 'Trucks', 'Active', 'Loads', 'Revenue', 'Miles', 'Avg $/mi', 'Today', 'Week', 'Month', 'All Time'].map(h => <th key={h}>{h}</th>)}</tr></thead>
                       <tbody>
                         {dispatcherStats.map(d => (
                           <tr key={d.id}>
                             <td style={{ fontWeight: 'bold' }}>{d.name}</td>
+                            <td style={{ fontWeight: 'bold', color: '#3b82f6' }}>{d.trucksHandled}</td>
+                            <td style={{ fontWeight: 'bold', color: '#f59e0b' }}>{d.activeLoads}</td>
                             <td>{d.loads}</td>
                             <td style={{ color: '#10b981' }}>${d.totalRev.toLocaleString()}</td>
                             <td>{d.totalMiles.toLocaleString()}</td>
