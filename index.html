@@ -280,24 +280,18 @@
           updated_at: new Date().toISOString()
         };
         
-        // Add next stop and details for active loads
+        // Add pickup and delivery cities for active loads
         if (loadDetails) {
-          if (loadStatus === 'booked' || loadStatus === 'dispatched') {
-            updateData.next_stop = loadDetails.from;
-            updateData.details = `PU: ${loadDetails.from} → ${loadDetails.to}`;
-            if (loadDetails.pickupDate) updateData.eta_date = loadDetails.pickupDate;
-          } else if (loadStatus === 'in_transit') {
-            updateData.next_stop = loadDetails.to;
-            updateData.details = `DEL: ${loadDetails.to} ($${loadDetails.rate})`;
-            if (loadDetails.deliveryDate) updateData.eta_date = loadDetails.deliveryDate;
-          } else if (loadStatus === 'delivered' || loadStatus === 'pod_received') {
-            updateData.next_stop = loadDetails.to;
-            updateData.details = `MTY @ ${loadDetails.to}`;
+          updateData.pickup_city = loadDetails.from || '';
+          updateData.delivery_city = loadDetails.to || '';
+          updateData.eta_date = loadDetails.deliveryDate || null;
+          updateData.eta_time = loadDetails.deliveryTime || null;
+          
+          if (loadStatus === 'delivered' || loadStatus === 'pod_received') {
+            updateData.pickup_city = '';
+            updateData.delivery_city = loadDetails.to || '';
             updateData.eta_date = null;
-          } else {
-            updateData.next_stop = '';
-            updateData.details = '';
-            updateData.eta_date = null;
+            updateData.eta_time = null;
           }
         }
         
@@ -328,14 +322,14 @@
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: closedDate }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         } else {
           const newStatus = statuses[Math.max(idx - 1, 0)];
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: null }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         }
       };
@@ -384,10 +378,10 @@
         if (d.id) {
           await supabase.from('loads').update(loadData).eq('id', d.id);
           const existingLoad = loads.find(l => l.id === d.id);
-          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         } else {
           await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false });
-          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { from: d.from, to: d.to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
       };
@@ -770,8 +764,8 @@
           trailer: d.trailer || '',
           phone: d.phone || '',
           trailer_type: d.trailerType || '',
-          next_stop: d.nextStop || '',
-          details: d.details || '',
+          pickup_city: d.pickupCity || '',
+          delivery_city: d.deliveryCity || '',
           eta_date: d.etaDate || null,
           eta_time: d.etaTime || '',
           status: d.status || 'mty',
@@ -1056,7 +1050,7 @@
                     <table style={{ fontSize: '11px' }}>
                       <thead>
                         <tr>
-                          {['Dispatcher', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'Next Stop', 'Details', 'ETA', 'Phone', 'Notes', ''].map(h => (
+                          {['Dispatcher', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'Delivery', 'ETA', 'Phone', 'Notes', ''].map(h => (
                             <th key={h} style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -1078,9 +1072,9 @@
                                 {STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                             </td>
-                            <td style={{ padding: '6px' }}>{row.next_stop}</td>
-                            <td style={{ padding: '6px', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.details}>{row.details}</td>
-                            <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>{row.eta_date} {row.eta_time}</td>
+                            <td style={{ padding: '6px' }}>{row.pickup_city || '—'}</td>
+                            <td style={{ padding: '6px' }}>{row.delivery_city || '—'}</td>
+                            <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>{row.eta_date || '—'}{row.eta_time ? ` ${row.eta_time}` : ''}</td>
                             <td style={{ padding: '6px', fontSize: '10px' }}>{row.phone}</td>
                             <td style={{ padding: '6px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.notes}>{row.notes}</td>
                             <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
@@ -1094,8 +1088,8 @@
                                 trailer: row.trailer,
                                 phone: row.phone,
                                 trailerType: row.trailer_type,
-                                nextStop: row.next_stop,
-                                details: row.details,
+                                pickupCity: row.pickup_city,
+                                deliveryCity: row.delivery_city,
                                 etaDate: row.eta_date,
                                 etaTime: row.eta_time,
                                 status: row.status,
@@ -1122,14 +1116,16 @@
                   <button onClick={() => openModal('load', { truckId: '' })} className="btn-sm btn-add" style={{ padding: '8px 16px' }}>+ New Load</button>
                 </div>
                 <div style={{ background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table><thead><tr>{['#', 'Load #', 'Customer', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                  <table><thead><tr>{['#', 'Customer', 'Dispatcher', 'Company', 'Load #', 'Route', 'Mi', 'Truck', 'Driver', 'Rate', '$/mi', 'PU', 'DEL', 'POD', 'Status', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
                     <tbody>{loads.map(l => {
                       const pickups = l.pickups || [l.from];
                       const deliveries = l.deliveries || [l.to];
                       const routeDisplay = pickups.length > 1 || deliveries.length > 1 
                         ? `${pickups.join(' → ')} → ${deliveries.join(' → ')}`
                         : `${l.from} → ${l.to}`;
-                      return (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td>{l.customer}</td><td style={{ fontSize: '11px' }}>{routeDisplay}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: '#10b981', fontWeight: 'bold' }}>{l.miles > 0 ? '$' + (l.rate / l.miles).toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'closed' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, pickups: l.pickups || [l.from], deliveries: l.deliveries || [l.to], rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>);
+                      const rpm = l.miles > 0 ? (l.rate / l.miles) : 0;
+                      const rpmColor = rpm >= 3 ? '#10b981' : rpm >= 2.5 ? '#22c55e' : rpm >= 2 ? '#f59e0b' : '#ef4444';
+                      return (<tr key={l.id}><td style={{ fontWeight: 'bold' }}>{l.id}</td><td>{l.customer}</td><td style={{ color: '#3b82f6' }}>{getDispatcher(l.dispatcherId)?.name || '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.company === 'AMC' ? '#fef3c7' : '#dbeafe' }}>{l.company || 'A2C'}</span></td><td style={{ fontSize: '11px' }}>{l.loadNumber || '—'}</td><td style={{ fontSize: '11px' }}>{routeDisplay}</td><td>{l.miles}</td><td style={{ color: '#3b82f6' }}>{getTruck(l.truckId)?.number || '—'}</td><td>{getDriver(l.driverId)?.name || '—'}</td><td style={{ fontWeight: 'bold' }}>${l.rate}</td><td style={{ color: rpmColor, fontWeight: 'bold' }}>{rpm > 0 ? '$' + rpm.toFixed(2) : '—'}</td><td style={{ fontSize: '10px' }}>{l.pickupDate || '—'}</td><td style={{ fontSize: '10px' }}>{l.deliveryDate || '—'}</td><td style={{ color: l.podReceived ? '#10b981' : '#999' }}>{l.podReceived ? '✓' : '—'}</td><td><span style={{ padding: '2px 6px', borderRadius: '8px', fontSize: '10px', background: l.status === 'pod_received' ? '#d1fae5' : '#f1f5f9' }}>{l.status}</span></td><td><button onClick={() => openModal('load', { id: l.id, company: l.company, loadNumber: l.loadNumber, customer: l.customer, from: l.from, to: l.to, pickups: l.pickups || [l.from], deliveries: l.deliveries || [l.to], rate: l.rate, miles: l.miles, deadhead: l.deadhead, driverId: l.driverId, truckId: l.truckId, dispatcherId: l.dispatcherId, pickupDate: l.pickupDate, deliveryDate: l.deliveryDate, pickupTime: l.pickupTime, deliveryTime: l.deliveryTime, notes: l.notes, lumperFee: l.lumperFee, lumperPaidBy: l.lumperPaidBy, detentionFee: l.detentionFee, detentionPaidBy: l.detentionPaidBy, lateFee: l.lateFee, lateFeePaidBy: l.lateFeePaidBy, layoverFee: l.layoverFee, layoverPaidBy: l.layoverPaidBy })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button><button onClick={() => deleteLoad(l.id)} className="btn-sm btn-delete">✕</button></td></tr>);
                     })}</tbody>
                   </table>
                 </div>
@@ -1770,11 +1766,13 @@
                 <div className="form-group"><label>Company</label><input value={editData.company || ''} onChange={e => setEditData({...editData, company: e.target.value})} /></div>
                 <div className="form-group"><label>MC#</label><input value={editData.mc || ''} onChange={e => setEditData({...editData, mc: e.target.value})} /></div>
               </div>
-              <div className="form-group"><label>Next Stop</label><input value={editData.nextStop || ''} onChange={e => setEditData({...editData, nextStop: e.target.value})} /></div>
-              <div className="form-group"><label>Details</label><input value={editData.details || ''} onChange={e => setEditData({...editData, details: e.target.value})} /></div>
               <div className="form-row">
-                <div className="form-group"><label>ETA Date</label><input type="date" value={editData.etaDate || ''} onChange={e => setEditData({...editData, etaDate: e.target.value})} /></div>
-                <div className="form-group"><label>ETA Time</label><input type="time" value={editData.etaTime || ''} onChange={e => setEditData({...editData, etaTime: e.target.value})} /></div>
+                <div className="form-group"><label>Pickup City</label><input value={editData.pickupCity || ''} onChange={e => setEditData({...editData, pickupCity: e.target.value})} placeholder="City, ST" /></div>
+                <div className="form-group"><label>Delivery City</label><input value={editData.deliveryCity || ''} onChange={e => setEditData({...editData, deliveryCity: e.target.value})} placeholder="City, ST" /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Delivery Date</label><input type="date" value={editData.etaDate || ''} onChange={e => setEditData({...editData, etaDate: e.target.value})} /></div>
+                <div className="form-group"><label>Delivery Time</label><input type="time" value={editData.etaTime || ''} onChange={e => setEditData({...editData, etaTime: e.target.value})} /></div>
               </div>
               <div className="form-group"><label>Email</label><input type="email" value={editData.email || ''} onChange={e => setEditData({...editData, email: e.target.value})} /></div>
               <div className="form-group"><label>Notes</label><textarea rows="2" value={editData.notes || ''} onChange={e => setEditData({...editData, notes: e.target.value})} style={{ width: '100%', resize: 'vertical' }} /></div>
