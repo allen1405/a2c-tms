@@ -282,7 +282,8 @@
         
         // Add pickup and delivery cities for active loads
         if (loadDetails) {
-          updateData.load_number = loadDetails.loadNumber || '';
+          // Show broker ref # or internal load ID
+          updateData.load_number = loadDetails.loadNumber || (loadDetails.loadId ? `#${loadDetails.loadId}` : '');
           updateData.pickup_city = loadDetails.from || '';
           updateData.delivery_city = loadDetails.to || '';
           updateData.eta_date = loadDetails.deliveryDate || null;
@@ -324,14 +325,14 @@
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: closedDate }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadId: load.id, loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         } else {
           const newStatus = statuses[Math.max(idx - 1, 0)];
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: null }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadId: load.id, loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         }
       };
@@ -380,10 +381,11 @@
         if (d.id) {
           await supabase.from('loads').update(loadData).eq('id', d.id);
           const existingLoad = loads.find(l => l.id === d.id);
-          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { loadId: d.id, loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         } else {
-          await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false });
-          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
+          const { data: newLoad } = await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false }).select();
+          const newLoadId = newLoad?.[0]?.id;
+          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { loadId: newLoadId, loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
       };
@@ -807,61 +809,71 @@
         let added = 0;
         let updated = 0;
         
+        // First, ensure all drivers with trucks have Load Board entries
         for (const driver of drivers) {
           if (!driver.truckId) continue;
           const truck = getTruck(driver.truckId);
           if (!truck) continue;
           
-          const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
+          const { data: existing } = await supabase.from('load_board').select('id').eq('truck', truck.number).limit(1);
+          if (!existing || existing.length === 0) {
+            const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
+            await supabase.from('load_board').insert({
+              dispatcher_id: driver.dispatcherId || null,
+              driver: driver.name,
+              truck: truck.number,
+              trailer: trailer?.number || '',
+              trailer_type: trailer?.make || '',
+              email: driver.email || '',
+              phone: driver.phone || '',
+              status: 'mty',
+              updated_at: new Date().toISOString()
+            });
+            added++;
+          }
+        }
+        
+        // Now update all Load Board entries with active load data
+        const { data: lbEntries } = await supabase.from('load_board').select('*');
+        
+        for (const lbEntry of (lbEntries || [])) {
+          // Find the truck
+          const truck = trucks.find(t => t.number === lbEntry.truck);
+          if (!truck) continue;
           
-          // Find active load for this truck (booked, dispatched, in_transit)
-          const activeStatuses = ['booked', 'dispatched', 'in_transit'];
-          const activeLoad = loads.find(l => l.truckId === driver.truckId && activeStatuses.includes(l.status));
-          
-          // Determine status and load details
-          let lbStatus = 'mty';
-          let loadNumber = '';
-          let pickupCity = '';
-          let deliveryCity = '';
-          let etaDate = null;
-          let etaTime = '';
-          
-          if (activeLoad) {
-            lbStatus = loadStatusToLBStatus[activeLoad.status] || 'mty';
-            loadNumber = activeLoad.loadNumber || '';
-            pickupCity = activeLoad.from || '';
-            deliveryCity = activeLoad.to || '';
-            etaDate = activeLoad.deliveryDate || null;
-            etaTime = activeLoad.deliveryTime || '';
+          // Find active load for this truck (prioritize: in_transit > dispatched > booked)
+          const activeStatuses = ['in_transit', 'dispatched', 'booked'];
+          let activeLoad = null;
+          for (const status of activeStatuses) {
+            activeLoad = loads.find(l => l.truckId === truck.id && l.status === status);
+            if (activeLoad) break;
           }
           
-          // Check if entry exists for this truck
-          const { data: existing } = await supabase.from('load_board').select('id').eq('truck', truck.number).limit(1);
-          
-          const lbData = {
-            dispatcher_id: driver.dispatcherId || null,
-            driver: driver.name,
-            truck: truck.number,
-            trailer: trailer?.number || '',
-            trailer_type: trailer?.make || '',
-            email: driver.email || '',
-            phone: driver.phone || '',
-            status: lbStatus,
-            load_number: loadNumber,
-            pickup_city: pickupCity,
-            delivery_city: deliveryCity,
-            eta_date: etaDate,
-            eta_time: etaTime,
+          // Prepare update data
+          const updateData = {
             updated_at: new Date().toISOString()
           };
           
-          if (existing && existing.length > 0) {
-            await supabase.from('load_board').update(lbData).eq('id', existing[0].id);
-            updated++;
+          if (activeLoad) {
+            updateData.status = loadStatusToLBStatus[activeLoad.status] || 'mty';
+            // Show broker ref # or internal load ID
+            updateData.load_number = activeLoad.loadNumber || `#${activeLoad.id}`;
+            updateData.pickup_city = activeLoad.from || '';
+            updateData.delivery_city = activeLoad.to || '';
+            updateData.eta_date = activeLoad.deliveryDate || null;
+            updateData.eta_time = activeLoad.deliveryTime || '';
           } else {
-            await supabase.from('load_board').insert(lbData);
-            added++;
+            // No active load - truck is empty
+            updateData.status = 'mty';
+            updateData.load_number = '';
+            updateData.pickup_city = '';
+            updateData.delivery_city = '';
+            updateData.eta_date = null;
+            updateData.eta_time = '';
           }
+          
+          await supabase.from('load_board').update(updateData).eq('id', lbEntry.id);
+          updated++;
         }
         
         await loadAllData();
@@ -875,8 +887,95 @@
         const idx = STATUS_ORDER.indexOf((status || '').toLowerCase().trim());
         return idx >= 0 ? idx : 999;
       };
+      
+      // Load status priority for sorting active loads
+      const LOAD_STATUS_PRIORITY = { 'in_transit': 1, 'dispatched': 2, 'booked': 3 };
 
-      // Sort load board by status
+      // Generate Load Board View: combines active loads + empty trucks
+      const generateLoadBoardView = () => {
+        const view = [];
+        const trucksWithActiveLoads = new Set();
+        
+        // 1. Add all active loads (in_transit, dispatched, booked)
+        const activeLoads = loads.filter(l => ['in_transit', 'dispatched', 'booked'].includes(l.status));
+        
+        for (const load of activeLoads) {
+          const truck = getTruck(load.truckId);
+          if (!truck) continue;
+          
+          trucksWithActiveLoads.add(truck.id);
+          
+          const driver = drivers.find(d => d.truckId === load.truckId);
+          const trailer = trailers.find(t => t.assignedTruckId === load.truckId);
+          const lbEntry = loadBoard.find(lb => lb.truck === truck.number);
+          
+          view.push({
+            id: `load-${load.id}`,
+            loadId: load.id,
+            isLoad: true,
+            dispatcher_id: load.dispatcherId || driver?.dispatcherId,
+            load_number: load.loadNumber || `#${load.id}`,
+            driver: driver?.name || '',
+            truck: truck.number,
+            trailer: trailer?.number || '',
+            trailer_type: trailer?.make || '',
+            status: loadStatusToLBStatus[load.status] || 'mty',
+            loadStatus: load.status,
+            pickup_city: load.from || '',
+            delivery_city: load.to || '',
+            eta_date: load.deliveryDate,
+            eta_time: load.deliveryTime,
+            phone: driver?.phone || lbEntry?.phone || '',
+            notes: load.notes || '',
+            statusPriority: LOAD_STATUS_PRIORITY[load.status] || 99
+          });
+        }
+        
+        // 2. Add empty trucks (trucks without active loads)
+        for (const lbEntry of loadBoard) {
+          const truck = trucks.find(t => t.number === lbEntry.truck);
+          if (truck && trucksWithActiveLoads.has(truck.id)) continue; // Skip if has active load
+          
+          // Only add if status is an "empty" status
+          const emptyStatuses = ['mty', 'mty-today', 'home', 'brokedown', 'problems', 'book himself'];
+          if (!emptyStatuses.includes(lbEntry.status)) continue;
+          
+          view.push({
+            id: `lb-${lbEntry.id}`,
+            lbId: lbEntry.id,
+            isLoad: false,
+            dispatcher_id: lbEntry.dispatcher_id,
+            load_number: '',
+            driver: lbEntry.driver,
+            truck: lbEntry.truck,
+            trailer: lbEntry.trailer,
+            trailer_type: lbEntry.trailer_type,
+            status: lbEntry.status || 'mty',
+            loadStatus: null,
+            pickup_city: '',
+            delivery_city: '',
+            eta_date: null,
+            eta_time: null,
+            phone: lbEntry.phone || '',
+            notes: lbEntry.notes || '',
+            statusPriority: 99
+          });
+        }
+        
+        // 3. Sort: in_transit first, then dispatched, then booked, then empty trucks
+        view.sort((a, b) => {
+          // First by load status priority
+          if (a.statusPriority !== b.statusPriority) return a.statusPriority - b.statusPriority;
+          // Then by truck number
+          return (a.truck || '').localeCompare(b.truck || '');
+        });
+        
+        return view;
+      };
+      
+      const loadBoardView = generateLoadBoardView();
+
+      // Sort load board by status (for manual entries only)
       const sortedLoadBoard = [...loadBoard].sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status));
 
       // Status colors for load board
@@ -1061,10 +1160,21 @@
                 </div>
                 
                 {/* Summary by Status */}
-                {sortedLoadBoard.length > 0 && (
+                {loadBoardView.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-                    {STATUS_ORDER.map(s => {
-                      const count = loadBoard.filter(r => (r.status || '').toLowerCase().trim() === s).length;
+                    {['in_transit', 'dispatched', 'booked'].map(s => {
+                      const count = loadBoardView.filter(r => r.loadStatus === s).length;
+                      if (count === 0) return null;
+                      const colors = { 'in_transit': '#6D9EEB', 'dispatched': '#F6B26B', 'booked': '#FFE599' };
+                      const labels = { 'in_transit': 'In Transit', 'dispatched': 'Dispatched', 'booked': 'Booked' };
+                      return (
+                        <div key={s} style={{ background: colors[s], padding: '6px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontWeight: 'bold' }}>{count}</span> {labels[s]}
+                        </div>
+                      );
+                    })}
+                    {STATUS_ORDER.filter(s => ['mty', 'mty-today', 'home', 'brokedown', 'problems', 'book himself'].includes(s)).map(s => {
+                      const count = loadBoardView.filter(r => !r.isLoad && r.status === s).length;
                       if (count === 0) return null;
                       return (
                         <div key={s} style={{ background: getStatusColor(s), padding: '6px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
@@ -1073,15 +1183,15 @@
                       );
                     })}
                     <div style={{ background: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
-                      Total: {loadBoard.length}
+                      Total: {loadBoardView.length}
                     </div>
                   </div>
                 )}
                 
-                {sortedLoadBoard.length === 0 ? (
+                {loadBoardView.length === 0 ? (
                   <div style={{ background: 'white', padding: '40px', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-                    <div>No entries yet. Click "+ Add Entry" to start.</div>
+                    <div>No entries yet. Click "🔄 Sync Fleet" to import trucks or "+ Add Entry" to add manually.</div>
                   </div>
                 ) : (
                   <div style={{ background: 'white', borderRadius: '8px', overflow: 'auto' }}>
@@ -1094,22 +1204,33 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedLoadBoard.map((row) => (
-                          <tr key={row.id} style={{ background: getStatusColor(row.status) }}>
+                        {loadBoardView.map((row) => {
+                          const statusColors = { 'in_transit': '#6D9EEB', 'dispatched': '#F6B26B', 'booked': '#FFE599' };
+                          const bgColor = row.isLoad ? statusColors[row.loadStatus] : getStatusColor(row.status);
+                          const statusLabels = { 'in_transit': 'In Transit', 'dispatched': 'Dispatched', 'booked': 'Booked' };
+                          
+                          return (
+                          <tr key={row.id} style={{ background: bgColor }}>
                             <td style={{ padding: '6px', fontWeight: 'bold' }}>{getDispatcher(row.dispatcher_id)?.name || '—'}</td>
-                            <td style={{ padding: '6px', fontSize: '10px' }}>{row.load_number || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px', fontWeight: row.isLoad ? 'bold' : 'normal' }}>{row.load_number || '—'}</td>
                             <td style={{ padding: '6px' }}>{row.driver}</td>
                             <td style={{ padding: '6px', color: '#1e40af', fontWeight: 'bold' }}>{row.truck}</td>
                             <td style={{ padding: '6px' }}>{row.trailer}</td>
                             <td style={{ padding: '6px' }}>{row.trailer_type}</td>
                             <td style={{ padding: '6px' }}>
-                              <select 
-                                value={row.status || 'mty'} 
-                                onChange={(e) => updateLoadBoardStatus(row.id, e.target.value)}
-                                style={{ padding: '2px 4px', fontSize: '10px', border: '1px solid rgba(0,0,0,0.2)', borderRadius: '4px', background: 'rgba(255,255,255,0.8)', fontWeight: 'bold' }}
-                              >
-                                {STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              {row.isLoad ? (
+                                <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', background: 'rgba(255,255,255,0.5)' }}>
+                                  {statusLabels[row.loadStatus] || row.loadStatus}
+                                </span>
+                              ) : (
+                                <select 
+                                  value={row.status || 'mty'} 
+                                  onChange={(e) => updateLoadBoardStatus(row.lbId, e.target.value)}
+                                  style={{ padding: '2px 4px', fontSize: '10px', border: '1px solid rgba(0,0,0,0.2)', borderRadius: '4px', background: 'rgba(255,255,255,0.8)', fontWeight: 'bold' }}
+                                >
+                                  {STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              )}
                             </td>
                             <td style={{ padding: '6px' }}>{row.pickup_city || '—'}</td>
                             <td style={{ padding: '6px' }}>{row.delivery_city || '—'}</td>
@@ -1117,30 +1238,30 @@
                             <td style={{ padding: '6px', fontSize: '10px' }}>{row.phone}</td>
                             <td style={{ padding: '6px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.notes}>{row.notes}</td>
                             <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
-                              <button onClick={() => openModal('loadboard', { 
-                                id: row.id, 
-                                dispatcherId: row.dispatcher_id,
-                                loadNumber: row.load_number,
-                                driver: row.driver,
-                                company: row.company,
-                                mc: row.mc,
-                                truck: row.truck,
-                                trailer: row.trailer,
-                                phone: row.phone,
-                                trailerType: row.trailer_type,
-                                pickupCity: row.pickup_city,
-                                deliveryCity: row.delivery_city,
-                                etaDate: row.eta_date,
-                                etaTime: row.eta_time,
-                                status: row.status,
-                                email: row.email,
-                                homeLocation: row.home_location,
-                                notes: row.notes
-                              })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button>
-                              <button onClick={() => deleteLoadBoardEntry(row.id)} className="btn-sm btn-delete">✕</button>
+                              {row.isLoad ? (
+                                <button onClick={() => {
+                                  const load = loads.find(l => l.id === row.loadId);
+                                  if (load) openModal('load', { id: load.id, company: load.company, loadNumber: load.loadNumber, customer: load.customer, from: load.from, to: load.to, pickups: load.pickups || [load.from], deliveries: load.deliveries || [load.to], rate: load.rate, miles: load.miles, deadhead: load.deadhead, driverId: load.driverId, truckId: load.truckId, dispatcherId: load.dispatcherId, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, pickupTime: load.pickupTime, deliveryTime: load.deliveryTime, notes: load.notes, lumperFee: load.lumperFee, lumperPaidBy: load.lumperPaidBy, detentionFee: load.detentionFee, detentionPaidBy: load.detentionPaidBy, lateFee: load.lateFee, lateFeePaidBy: load.lateFeePaidBy, layoverFee: load.layoverFee, layoverPaidBy: load.layoverPaidBy });
+                                }} className="btn-sm btn-edit">✎</button>
+                              ) : (
+                                <>
+                                  <button onClick={() => openModal('loadboard', { 
+                                    id: row.lbId, 
+                                    dispatcherId: row.dispatcher_id,
+                                    driver: row.driver,
+                                    truck: row.truck,
+                                    trailer: row.trailer,
+                                    phone: row.phone,
+                                    trailerType: row.trailer_type,
+                                    status: row.status,
+                                    notes: row.notes
+                                  })} className="btn-sm btn-edit" style={{ marginRight: '4px' }}>✎</button>
+                                  <button onClick={() => deleteLoadBoardEntry(row.lbId)} className="btn-sm btn-delete">✕</button>
+                                </>
+                              )}
                             </td>
                           </tr>
-                        ))}
+                        );})}
                       </tbody>
                     </table>
                   </div>
