@@ -914,7 +914,8 @@
             loadId: load.id,
             isLoad: true,
             dispatcher_id: load.dispatcherId || driver?.dispatcherId,
-            load_number: load.loadNumber || `#${load.id}`,
+            internal_id: load.id,
+            load_number: load.loadNumber || '',
             driver: driver?.name || '',
             truck: truck.number,
             trailer: trailer?.number || '',
@@ -922,9 +923,11 @@
             status: loadStatusToLBStatus[load.status] || 'mty',
             loadStatus: load.status,
             pickup_city: load.from || '',
+            pickup_date: load.pickupDate,
+            pickup_time: load.pickupTime,
             delivery_city: load.to || '',
-            eta_date: load.deliveryDate,
-            eta_time: load.deliveryTime,
+            delivery_date: load.deliveryDate,
+            delivery_time: load.deliveryTime,
             phone: driver?.phone || lbEntry?.phone || '',
             notes: load.notes || '',
             statusPriority: LOAD_STATUS_PRIORITY[load.status] || 99
@@ -945,6 +948,7 @@
             lbId: lbEntry.id,
             isLoad: false,
             dispatcher_id: lbEntry.dispatcher_id,
+            internal_id: null,
             load_number: '',
             driver: lbEntry.driver,
             truck: lbEntry.truck,
@@ -953,9 +957,11 @@
             status: lbEntry.status || 'mty',
             loadStatus: null,
             pickup_city: '',
+            pickup_date: null,
+            pickup_time: null,
             delivery_city: '',
-            eta_date: null,
-            eta_time: null,
+            delivery_date: null,
+            delivery_time: null,
             phone: lbEntry.phone || '',
             notes: lbEntry.notes || '',
             statusPriority: 99
@@ -1198,7 +1204,7 @@
                     <table style={{ fontSize: '11px' }}>
                       <thead>
                         <tr>
-                          {['Dispatcher', 'Load #', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'Delivery', 'ETA', 'Phone', 'Notes', ''].map(h => (
+                          {['Dispatcher', '#', 'Load #', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'PU Date', 'Delivery', 'DEL Date', 'Phone', 'Notes', ''].map(h => (
                             <th key={h} style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -1212,7 +1218,8 @@
                           return (
                           <tr key={row.id} style={{ background: bgColor }}>
                             <td style={{ padding: '6px', fontWeight: 'bold' }}>{getDispatcher(row.dispatcher_id)?.name || '—'}</td>
-                            <td style={{ padding: '6px', fontSize: '10px', fontWeight: row.isLoad ? 'bold' : 'normal' }}>{row.load_number || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px', fontWeight: 'bold', color: '#1e40af' }}>{row.internal_id || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px' }}>{row.load_number || '—'}</td>
                             <td style={{ padding: '6px' }}>{row.driver}</td>
                             <td style={{ padding: '6px', color: '#1e40af', fontWeight: 'bold' }}>{row.truck}</td>
                             <td style={{ padding: '6px' }}>{row.trailer}</td>
@@ -1233,8 +1240,9 @@
                               )}
                             </td>
                             <td style={{ padding: '6px' }}>{row.pickup_city || '—'}</td>
+                            <td style={{ padding: '6px', whiteSpace: 'nowrap', fontSize: '10px' }}>{row.pickup_date || '—'}{row.pickup_time ? ` ${row.pickup_time}` : ''}</td>
                             <td style={{ padding: '6px' }}>{row.delivery_city || '—'}</td>
-                            <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>{row.eta_date || '—'}{row.eta_time ? ` ${row.eta_time}` : ''}</td>
+                            <td style={{ padding: '6px', whiteSpace: 'nowrap', fontSize: '10px' }}>{row.delivery_date || '—'}{row.delivery_time ? ` ${row.delivery_time}` : ''}</td>
                             <td style={{ padding: '6px', fontSize: '10px' }}>{row.phone}</td>
                             <td style={{ padding: '6px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.notes}>{row.notes}</td>
                             <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
