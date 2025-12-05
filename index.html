@@ -802,36 +802,71 @@
 
       // Sync existing fleet (drivers with trucks) to Load Board
       const syncFleetToLoadBoard = async () => {
-        if (!confirm('This will add Load Board entries for all drivers with trucks assigned. Continue?')) return;
+        if (!confirm('This will sync all Load Board entries with current fleet and active loads. Continue?')) return;
         showStatus('saving', '↻ Syncing fleet...');
         let added = 0;
+        let updated = 0;
         
         for (const driver of drivers) {
           if (!driver.truckId) continue;
           const truck = getTruck(driver.truckId);
           if (!truck) continue;
           
+          const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
+          
+          // Find active load for this truck (booked, dispatched, in_transit)
+          const activeStatuses = ['booked', 'dispatched', 'in_transit'];
+          const activeLoad = loads.find(l => l.truckId === driver.truckId && activeStatuses.includes(l.status));
+          
+          // Determine status and load details
+          let lbStatus = 'mty';
+          let loadNumber = '';
+          let pickupCity = '';
+          let deliveryCity = '';
+          let etaDate = null;
+          let etaTime = '';
+          
+          if (activeLoad) {
+            lbStatus = loadStatusToLBStatus[activeLoad.status] || 'mty';
+            loadNumber = activeLoad.loadNumber || '';
+            pickupCity = activeLoad.from || '';
+            deliveryCity = activeLoad.to || '';
+            etaDate = activeLoad.deliveryDate || null;
+            etaTime = activeLoad.deliveryTime || '';
+          }
+          
           // Check if entry exists for this truck
           const { data: existing } = await supabase.from('load_board').select('id').eq('truck', truck.number).limit(1);
-          if (existing && existing.length > 0) continue; // Skip if already exists
           
-          const trailer = trailers.find(t => t.assignedTruckId === driver.truckId);
-          await supabase.from('load_board').insert({
+          const lbData = {
             dispatcher_id: driver.dispatcherId || null,
             driver: driver.name,
             truck: truck.number,
             trailer: trailer?.number || '',
             trailer_type: trailer?.make || '',
             email: driver.email || '',
-            status: 'mty',
+            phone: driver.phone || '',
+            status: lbStatus,
+            load_number: loadNumber,
+            pickup_city: pickupCity,
+            delivery_city: deliveryCity,
+            eta_date: etaDate,
+            eta_time: etaTime,
             updated_at: new Date().toISOString()
-          });
-          added++;
+          };
+          
+          if (existing && existing.length > 0) {
+            await supabase.from('load_board').update(lbData).eq('id', existing[0].id);
+            updated++;
+          } else {
+            await supabase.from('load_board').insert(lbData);
+            added++;
+          }
         }
         
         await loadAllData();
         showStatus('saved', '✓ Synced');
-        alert(`Added ${added} entries to Load Board.`);
+        alert(`Load Board synced: ${added} added, ${updated} updated.`);
       };
 
       // Status order for sorting
