@@ -1142,6 +1142,7 @@
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>#{load.id}</span><span style={{ color: '#10b981' }}>${load.rate}</span></div>
                           <div style={{ color: '#64748b', margin: '4px 0' }}>{routeDisplay}</div>
                           <div style={{ color: '#64748b' }}>👤 {getDriver(load.driverId)?.name || '—'}</div>
+                          <div style={{ color: '#1e40af', fontSize: '10px' }}>🚛 {getTruck(load.truckId)?.number || '—'}</div>
                           <div style={{ color: '#3b82f6', fontSize: '10px' }}>📋 {getDispatcher(load.dispatcherId)?.name || getDispatcher(getDriver(load.driverId)?.dispatcherId)?.name || '—'}</div>
                           {load.status === 'delivered' && !load.podReceived && <button onClick={() => markPodReceived(load.id)} style={{ fontSize: '9px', padding: '4px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', width: '100%', marginTop: '4px' }}>Mark POD ✓</button>}
                           {load.status === 'delivered' && load.podReceived && <div style={{ color: '#10b981', marginTop: '4px' }}>✓ POD</div>}
