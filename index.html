@@ -76,7 +76,7 @@
     // ============ DATA CONVERTERS ============
     const toDriver = (row) => ({ id: row.id, name: row.name, company: row.company || 'A2C', type: row.type, payType: row.pay_type, payRate: parseFloat(row.pay_rate), minMiles: row.min_miles, overageRate: row.overage_rate ? parseFloat(row.overage_rate) : null, truckId: row.truck_id, dispatcherId: row.dispatcher_id, email: row.email, phone: row.phone, homeLocation: row.home_location, ooInsurance: parseFloat(row.oo_insurance) || 0, ooEld: parseFloat(row.oo_eld) || 0, ooTrailerRental: parseFloat(row.oo_trailer_rental) || 0 });
     const toTruck = (row) => ({ id: row.id, number: row.number, type: row.type, year: row.year, make: row.make, vin: row.vin, monthlyPayment: parseFloat(row.monthly_payment) || 0, autoIns: parseFloat(row.auto_ins) || 0, cargoIns: parseFloat(row.cargo_ins) || 0, pdIns: parseFloat(row.pd_ins) || 0, eld: parseFloat(row.eld) || 0, dispatcherId: row.dispatcher_id });
-    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, pickups: row.pickups ? JSON.parse(row.pickups) : null, deliveries: row.deliveries ? JSON.parse(row.deliveries) : null, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
+    const toLoad = (row) => ({ id: row.id, loadNumber: row.load_number, company: row.company || 'A2C', customer: row.customer, from: row.origin, to: row.destination, pickups: row.pickups ? JSON.parse(row.pickups) : null, deliveries: row.deliveries ? JSON.parse(row.deliveries) : null, rate: parseFloat(row.rate), miles: row.miles || 0, deadhead: row.deadhead || 0, driverId: row.driver_id, truckId: row.truck_id, dispatcherId: row.dispatcher_id ? Number(row.dispatcher_id) : null, status: row.status, podReceived: row.pod_received, closedDate: row.closed_date, pickupDate: row.pickup_date, deliveryDate: row.delivery_date, pickupTime: row.pickup_time, deliveryTime: row.delivery_time, notes: row.notes, lumperFee: row.lumper_fee, lumperPaidBy: row.lumper_paid_by, detentionFee: row.detention_fee, detentionPaidBy: row.detention_paid_by, lateFee: row.late_fee, lateFeePaidBy: row.late_fee_paid_by, layoverFee: row.layover_fee, layoverPaidBy: row.layover_paid_by });
     const toAdvance = (row) => ({ id: row.id, driverId: row.driver_id, amount: parseFloat(row.amount), date: row.date, type: row.type, note: row.note, weekPeriod: row.week_period });
     const toBalance = (row) => ({ driverId: row.driver_id, previousOwed: parseFloat(row.previous_owed) || 0 });
     const toExpense = (row) => ({ id: row.id, category: row.category, truckId: row.truck_id, driverId: row.driver_id, trailerId: row.trailer_id, amount: parseFloat(row.amount), date: row.date, note: row.note });
@@ -174,10 +174,10 @@
       // Helpers
       const companyTrucks = trucks.filter(t => t.type === 'company');
       const ooDrivers = drivers.filter(d => d.type === 'owner_operator');
-      const getDriver = id => drivers.find(d => d.id === id);
-      const getTruck = id => trucks.find(t => t.id === id);
-      const getTrailer = id => trailers.find(t => t.id === id);
-      const getDispatcher = id => dispatchers.find(d => d.id === id);
+      const getDriver = id => drivers.find(d => d.id === Number(id));
+      const getTruck = id => trucks.find(t => t.id === Number(id));
+      const getTrailer = id => trailers.find(t => t.id === Number(id));
+      const getDispatcher = id => dispatchers.find(d => d.id === Number(id));
       const getDriverBalance = id => driverBalances.find(b => b.driverId === id)?.previousOwed || 0;
       const getWeekLoads = (ws, we) => loads.filter(l => l.status === 'closed' && l.closedDate >= ws && l.closedDate <= we);
       const getWeekAdvances = (did, ws, we) => advances.filter(a => a.driverId === did && a.date >= ws && a.date <= we);
@@ -1142,6 +1142,7 @@
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>#{load.id}</span><span style={{ color: '#10b981' }}>${load.rate}</span></div>
                           <div style={{ color: '#64748b', margin: '4px 0' }}>{routeDisplay}</div>
                           <div style={{ color: '#64748b' }}>👤 {getDriver(load.driverId)?.name || '—'}</div>
+                          <div style={{ color: '#3b82f6', fontSize: '10px' }}>📋 {getDispatcher(load.dispatcherId)?.name || getDispatcher(getDriver(load.driverId)?.dispatcherId)?.name || '—'}</div>
                           {load.status === 'delivered' && !load.podReceived && <button onClick={() => markPodReceived(load.id)} style={{ fontSize: '9px', padding: '4px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', width: '100%', marginTop: '4px' }}>Mark POD ✓</button>}
                           {load.status === 'delivered' && load.podReceived && <div style={{ color: '#10b981', marginTop: '4px' }}>✓ POD</div>}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
