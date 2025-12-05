@@ -282,12 +282,14 @@
         
         // Add pickup and delivery cities for active loads
         if (loadDetails) {
+          updateData.load_number = loadDetails.loadNumber || '';
           updateData.pickup_city = loadDetails.from || '';
           updateData.delivery_city = loadDetails.to || '';
           updateData.eta_date = loadDetails.deliveryDate || null;
           updateData.eta_time = loadDetails.deliveryTime || null;
           
           if (loadStatus === 'delivered' || loadStatus === 'pod_received') {
+            updateData.load_number = '';
             updateData.pickup_city = '';
             updateData.delivery_city = loadDetails.to || '';
             updateData.eta_date = null;
@@ -322,14 +324,14 @@
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: closedDate }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         } else {
           const newStatus = statuses[Math.max(idx - 1, 0)];
           showStatus('saving', '↻ Saving...'); 
           await supabase.from('loads').update({ status: newStatus, closed_date: null }).eq('id', loadId);
           // Update Load Board
-          await updateLoadBoardFromLoad(load.truckId, newStatus, { from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
+          await updateLoadBoardFromLoad(load.truckId, newStatus, { loadNumber: load.loadNumber, from: load.from, to: load.to, rate: load.rate, pickupDate: load.pickupDate, deliveryDate: load.deliveryDate, deliveryTime: load.deliveryTime });
           showStatus('saved', '✓ Saved'); await loadAllData();
         }
       };
@@ -378,10 +380,10 @@
         if (d.id) {
           await supabase.from('loads').update(loadData).eq('id', d.id);
           const existingLoad = loads.find(l => l.id === d.id);
-          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), existingLoad?.status || 'booked', { loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         } else {
           await supabase.from('loads').insert({ ...loadData, status: 'booked', pod_received: false });
-          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
+          await updateLoadBoardFromLoad(parseInt(d.truckId), 'booked', { loadNumber: d.loadNumber, from, to, rate: d.rate, pickupDate: d.pickupDate, deliveryDate: d.deliveryDate, deliveryTime: d.deliveryTime });
         }
         showStatus('saved', '✓ Saved'); setModal(null); await loadAllData();
       };
@@ -757,6 +759,7 @@
         showStatus('saving', '↻ Saving...');
         const data = {
           dispatcher_id: d.dispatcherId ? parseInt(d.dispatcherId) : null,
+          load_number: d.loadNumber || '',
           driver: d.driver || '',
           company: d.company || '',
           mc: d.mc || '',
@@ -1050,7 +1053,7 @@
                     <table style={{ fontSize: '11px' }}>
                       <thead>
                         <tr>
-                          {['Dispatcher', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'Delivery', 'ETA', 'Phone', 'Notes', ''].map(h => (
+                          {['Dispatcher', 'Load #', 'Driver', 'Truck', 'Trailer', 'Type', 'Status', 'PU', 'Delivery', 'ETA', 'Phone', 'Notes', ''].map(h => (
                             <th key={h} style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -1059,6 +1062,7 @@
                         {sortedLoadBoard.map((row) => (
                           <tr key={row.id} style={{ background: getStatusColor(row.status) }}>
                             <td style={{ padding: '6px', fontWeight: 'bold' }}>{getDispatcher(row.dispatcher_id)?.name || '—'}</td>
+                            <td style={{ padding: '6px', fontSize: '10px' }}>{row.load_number || '—'}</td>
                             <td style={{ padding: '6px' }}>{row.driver}</td>
                             <td style={{ padding: '6px', color: '#1e40af', fontWeight: 'bold' }}>{row.truck}</td>
                             <td style={{ padding: '6px' }}>{row.trailer}</td>
@@ -1081,6 +1085,7 @@
                               <button onClick={() => openModal('loadboard', { 
                                 id: row.id, 
                                 dispatcherId: row.dispatcher_id,
+                                loadNumber: row.load_number,
                                 driver: row.driver,
                                 company: row.company,
                                 mc: row.mc,
@@ -1748,6 +1753,7 @@
               <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>{editData.id ? 'Edit Entry' : 'New Entry'}</h2>
               <div className="form-row">
                 <div className="form-group"><label>Dispatcher</label><select value={editData.dispatcherId || ''} onChange={e => setEditData({...editData, dispatcherId: e.target.value})}><option value="">Select...</option>{dispatchers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+                <div className="form-group"><label>Load #</label><input value={editData.loadNumber || ''} onChange={e => setEditData({...editData, loadNumber: e.target.value})} placeholder="Broker ref #" /></div>
                 <div className="form-group"><label>Status</label><select value={editData.status || 'mty'} onChange={e => setEditData({...editData, status: e.target.value})}>{STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
               </div>
               <div className="form-row">
