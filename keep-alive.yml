@@ -1,0 +1,18 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 12 */5 * *'  # Every 5 days at noon UTC
+  workflow_dispatch:  # Manual trigger too
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping A2C TMS Supabase
+        run: |
+          curl -s \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaG5wdmh1YXJybWV5a2JpbmVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NTU0OTQsImV4cCI6MjA4MDQzMTQ5NH0.1iCL09i_iKZAMKky4hrtoMUXrgBKRDUL4frPZWKj2_k" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaG5wdmh1YXJybWV5a2JpbmVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NTU0OTQsImV4cCI6MjA4MDQzMTQ5NH0.1iCL09i_iKZAMKky4hrtoMUXrgBKRDUL4frPZWKj2_k" \
+            "https://wdhnpvhuarrmeykbinej.supabase.co/rest/v1/dispatchers?select=id&limit=1"
+          echo "✅ Supabase pinged successfully"
